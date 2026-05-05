@@ -192,6 +192,7 @@ document.getElementById('btn-pin').onclick = () => {
   ipcRenderer.send('toggle-always-on-top');
 };
 document.getElementById('btn-reload').onclick = () => ipcRenderer.send('reload-page');
+document.getElementById('btn-update').onclick = () => ipcRenderer.send('check-for-updates');
 
 // IPC Updates from Main
 ipcRenderer.on('update-profile-badge', (event, { id, count }) => {

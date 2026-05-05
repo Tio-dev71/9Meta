@@ -29,7 +29,7 @@ const fs = require('fs');
 const ZALO_URL = 'https://chat.zalo.me';
 const APP_ID = 'com.zalo.desktop';
 const USER_AGENT =
-  'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/125.0.0.0 Safari/537.36 ZaloPC/24.5.1 Zalo-Mac/24.5.1';
+  'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/125.0.0.0 Safari/537.36';
 
 // ============================================================
 //  CHỐNG CHẠY TRÙNG LẶP (Single Instance Lock)
@@ -285,11 +285,37 @@ function updateBrowserViewBounds() {
 
 function setupWebContents(contents, profileId) {
   contents.setWindowOpenHandler(({ url }) => {
-    if (url.includes('facebook.com') || url.includes('messenger.com') || url.includes('fbcdn.net') || url.includes('zalo.me') || url.includes('microsoft.com') || url.includes('live.com') || url.includes('office.com') || url.includes('skype.com') || url.includes('microsoftonline.com') || url.includes('google.com') || url.includes('gmail.com') || url.includes('gstatic.com') || url.includes('googleusercontent.com') || url.includes('accounts.google.com')) {
+    // Zalo có thể mở url about:blank hoặc blob trước để preview, ta nên cho phép mở trong nội bộ
+    if (url === 'about:blank' || url.startsWith('blob:') || url.startsWith('file:')) {
       return { action: 'allow' };
     }
-    shell.openExternal(url);
-    return { action: 'deny' };
+
+    // TẤT CẢ các link web (kể cả facebook, zalo, zapps...) khi click sẽ MỞ RA TRÌNH DUYỆT NGOÀI
+    let finalUrl = url;
+    if (!finalUrl.startsWith('http://') && !finalUrl.startsWith('https://') && !finalUrl.startsWith('mailto:')) {
+      finalUrl = 'https://' + finalUrl;
+    }
+
+    shell.openExternal(finalUrl).catch(err => {
+      console.error('[Main] Lỗi mở external link:', finalUrl, err);
+    });
+    return { action: 'deny' }; // Chặn mở cửa sổ mới trong app
+  });
+
+  contents.on('will-navigate', (event, url) => {
+    // Nếu là điều hướng nội bộ của các nền tảng hỗ trợ thì cho phép
+    if (url.includes('chat.zalo.me') || url.includes('id.zalo.me') || 
+        url.includes('messenger.com') || url.includes('facebook.com') ||
+        url.includes('web.whatsapp.com') || url.includes('whatsapp.com')) return;
+    
+    event.preventDefault();
+    let finalUrl = url;
+    if (!finalUrl.startsWith('http://') && !finalUrl.startsWith('https://') && !finalUrl.startsWith('mailto:')) {
+      finalUrl = 'https://' + finalUrl;
+    }
+    shell.openExternal(finalUrl).catch(err => {
+      console.error('[Main] Lỗi mở external link (will-navigate):', finalUrl, err);
+    });
   });
 
   contents.on('context-menu', (event, params) => {
@@ -412,43 +438,101 @@ function createWindow() {
   });
 
   app.on('session-created', (sess) => {
+    // Ép các cookie phiên (session cookie) của Zalo thành cookie vĩnh viễn (sống 1 năm)
+    // để tránh bị văng tài khoản khi đóng app hoặc sau 1-2 ngày
+    sess.cookies.on('changed', (event, cookie, cause, removed) => {
+      const domainMatch = cookie.domain && (
+        cookie.domain.includes('zalo.me') ||
+        cookie.domain.includes('messenger.com') ||
+        cookie.domain.includes('facebook.com') ||
+        cookie.domain.includes('whatsapp.com')
+      );
+      if (!removed && cookie.session && domainMatch) {
+        const prefix = cookie.domain.startsWith('.') ? 'www' : '';
+        const newCookie = {
+          url: `https://${prefix}${cookie.domain}${cookie.path}`,
+          name: cookie.name,
+          value: cookie.value,
+          domain: cookie.domain,
+          path: cookie.path,
+          secure: cookie.secure,
+          httpOnly: cookie.httpOnly,
+          expirationDate: Math.floor(Date.now() / 1000) + (365 * 24 * 60 * 60) // 1 năm
+        };
+        sess.cookies.set(newCookie).catch(() => {});
+      }
+    });
+
     // Chặn Request ở cấp độ mạng (Network Level) cho Zalo API
     // CHÚ Ý: Chỉ chặn POST/PUT request gửi trạng thái (seen/typing),
     //         KHÔNG chặn GET request vì đó là sync dữ liệu về máy.
+    // === CHẶN NETWORK CHO ZALO ===
     sess.webRequest.onBeforeRequest({ urls: ['*://*.zalo.me/*', '*://*.zadn.vn/*'] }, (details, callback) => {
       let cancel = false;
       const method = (details.method || '').toUpperCase();
 
-      // Bỏ qua GET request — đây là request đồng bộ dữ liệu, không được chặn
-      if (method === 'GET') {
-        callback({ cancel: false });
-        return;
-      }
+      if (method === 'GET') { callback({ cancel: false }); return; }
 
-      // Bỏ qua các endpoint đồng bộ tin nhắn quan trọng
       const syncSafePatterns = ['/sync', '/conversation', '/api/message/list', '/api/message/get', '/api/group'];
-      const isSyncSafe = syncSafePatterns.some(p => details.url.includes(p));
-      if (isSyncSafe) {
-        callback({ cancel: false });
-        return;
-      }
+      if (syncSafePatterns.some(p => details.url.includes(p))) { callback({ cancel: false }); return; }
 
-      // Chặn Đã xem (Block Seen) — chỉ chặn POST/PUT gửi trạng thái đã xem
       if (settings.blockSeen) {
         if ((details.url.includes('/api/message/read') || details.url.includes('/api/message/seen')) && !details.url.includes('read_status')) {
           cancel = true;
-          console.log("[DepLao-Main] Đã chặn XHR báo Đã Xem:", details.url);
+          console.log('[DepLao-Main] Chặn Zalo Seen:', details.url);
         }
       }
-
-      // Chặn Đang nhập (Block Typing) — chỉ chặn POST/PUT gửi trạng thái đang nhập
       if (settings.blockTyping) {
         if (details.url.includes('/api/message/typing')) {
           cancel = true;
-          console.log("[DepLao-Main] Đã chặn XHR báo Đang Nhập:", details.url);
+          console.log('[DepLao-Main] Chặn Zalo Typing:', details.url);
         }
       }
+      callback({ cancel });
+    });
 
+    // === CHẶN NETWORK CHO MESSENGER ===
+    sess.webRequest.onBeforeRequest({ urls: ['*://*.messenger.com/*', '*://*.facebook.com/*'] }, (details, callback) => {
+      let cancel = false;
+      const method = (details.method || '').toUpperCase();
+      if (method === 'GET') { callback({ cancel: false }); return; }
+
+      if (settings.blockSeen) {
+        if (details.url.includes('change_read_status') || details.url.includes('mark_read') || 
+            details.url.includes('read_receipt') || details.url.includes('/ajax/mercury/mark_seen')) {
+          cancel = true;
+          console.log('[DepLao-Main] Chặn Messenger Seen:', details.url);
+        }
+      }
+      if (settings.blockTyping) {
+        if (details.url.includes('typ.php') || details.url.includes('typing_indicator') ||
+            details.url.includes('send_typing_indicator')) {
+          cancel = true;
+          console.log('[DepLao-Main] Chặn Messenger Typing:', details.url);
+        }
+      }
+      callback({ cancel });
+    });
+
+    // === CHẶN NETWORK CHO WHATSAPP ===
+    sess.webRequest.onBeforeRequest({ urls: ['*://*.whatsapp.com/*', '*://web.whatsapp.com/*'] }, (details, callback) => {
+      let cancel = false;
+      const method = (details.method || '').toUpperCase();
+      if (method === 'GET') { callback({ cancel: false }); return; }
+
+      // WhatsApp Web dùng WebSocket chủ yếu, nhưng vẫn chặn HTTP fallback
+      if (settings.blockSeen) {
+        if (details.url.includes('/read') || details.url.includes('receipt')) {
+          cancel = true;
+          console.log('[DepLao-Main] Chặn WhatsApp Seen:', details.url);
+        }
+      }
+      if (settings.blockTyping) {
+        if (details.url.includes('chatstate') || details.url.includes('composing') || details.url.includes('typing')) {
+          cancel = true;
+          console.log('[DepLao-Main] Chặn WhatsApp Typing:', details.url);
+        }
+      }
       callback({ cancel });
     });
 
@@ -541,9 +625,19 @@ function createWindow() {
       }
 
       let url = ZALO_URL;
-      if (profile.platform === 'teams') url = 'https://teams.microsoft.com/';
-      else if (profile.platform === 'gmail') url = 'https://mail.google.com/';
-      view.webContents.loadURL(url, { userAgent: USER_AGENT });
+      let ua = USER_AGENT;
+      if (profile.platform === 'messenger') {
+        url = 'https://www.messenger.com/';
+      } else if (profile.platform === 'whatsapp') {
+        url = 'https://web.whatsapp.com/';
+        // WhatsApp Web cần User-Agent Chrome mới nhất
+        ua = 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/126.0.0.0 Safari/537.36';
+      } else if (profile.platform === 'teams') {
+        url = 'https://teams.microsoft.com/';
+      } else if (profile.platform === 'gmail') {
+        url = 'https://mail.google.com/';
+      }
+      view.webContents.loadURL(url, { userAgent: ua });
     }
     mainWindow.setBrowserView(browserViews[profile.id]);
     updateBrowserViewBounds();
@@ -640,6 +734,10 @@ function createWindow() {
       blockSeen: settings.blockSeen,
       blockTyping: settings.blockTyping,
     };
+  });
+
+  ipcMain.on('check-for-updates', () => {
+    checkForUpdates(true);
   });
 }
 
