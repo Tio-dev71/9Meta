@@ -1,6 +1,6 @@
 {
   "name": "dep-lao",
-  "version": "1.1.0",
+  "version": "1.2.0",
   "description": "Ứng dụng Dép Lào Desktop - Chạy trên nhân Chrome (Chromium)",
   "main": "main.js",
   "scripts": {
@@ -60,8 +60,8 @@
     "publish": [
       {
         "provider": "github",
-        "owner": "Tiodev71",
-        "repo": "Zalo"
+        "owner": "Tio-dev71",
+        "repo": "Deplao-App"
       }
     ]
   },

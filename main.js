@@ -22,32 +22,18 @@ const {
 const { autoUpdater } = require('electron-updater');
 const path = require('path');
 const fs = require('fs');
+const crypto = require('crypto');
 
-// ============================================================
-//  CẤU HÌNH CHUNG
-// ============================================================
 const ZALO_URL = 'https://chat.zalo.me';
 const APP_ID = 'com.zalo.desktop';
-const USER_AGENT =
-  'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/125.0.0.0 Safari/537.36';
+const SIDEBAR_WIDTH = 56;
+const USER_AGENT = 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/126.0.0.0 Safari/537.36';
 
-// ============================================================
-//  CHỐNG CHẠY TRÙNG LẶP (Single Instance Lock)
-// ============================================================
 const gotTheLock = app.requestSingleInstanceLock();
-if (!gotTheLock) {
-  app.quit();
-}
+if (!gotTheLock) app.quit();
+if (process.platform === 'win32') app.setAppUserModelId(APP_ID);
 
-if (process.platform === 'win32') {
-  app.setAppUserModelId(APP_ID);
-}
-
-// ============================================================
-//  HỆ THỐNG LƯU CÀI ĐẶT
-// ============================================================
 const SETTINGS_PATH = path.join(app.getPath('userData'), 'settings.json');
-
 const DEFAULT_SETTINGS = {
   windowBounds: { width: 1200, height: 800 },
   startMinimized: false,
@@ -59,111 +45,88 @@ const DEFAULT_SETTINGS = {
   alwaysOnTop: false,
   blockSeen: false,
   blockTyping: false,
+  zadarkShield: false,
+  lockOnStartup: false,
+  lockPasswordHash: '',
+  lockSalt: '',
+  quickReplies: [],
 };
 
 function loadSettings() {
-  try {
-    const data = fs.readFileSync(SETTINGS_PATH, 'utf8');
-    return { ...DEFAULT_SETTINGS, ...JSON.parse(data) };
-  } catch {
-    return { ...DEFAULT_SETTINGS };
-  }
+  try { return { ...DEFAULT_SETTINGS, ...JSON.parse(fs.readFileSync(SETTINGS_PATH, 'utf8')) }; }
+  catch { return { ...DEFAULT_SETTINGS }; }
 }
-
 function saveSettings(data) {
-  try {
-    fs.writeFileSync(SETTINGS_PATH, JSON.stringify(data, null, 2), 'utf8');
-  } catch (err) { }
+  try { fs.writeFileSync(SETTINGS_PATH, JSON.stringify(data, null, 2), 'utf8'); } catch (err) { }
 }
 
-// ============================================================
-//  BIẾN TOÀN CỤC
-// ============================================================
 let mainWindow = null;
 let tray = null;
 let settings = loadSettings();
 let isQuitting = false;
 let unreadCount = 0;
-
-let browserViews = {}; // { profileId: BrowserView }
+let browserViews = {};
 let activeProfileId = null;
-let proxyCredentials = {}; // { "ip:port": { username, password } }
+let proxyCredentials = {};
+let appLocked = false;
+let downloads = [];
+let updateState = { status: 'idle', progress: 0, message: 'Sẵn sàng kiểm tra cập nhật.' };
 
-// ============================================================
-//  TẠO ICON BADGE
-// ============================================================
 function createBadgeIcon(count) {
   const size = 18;
   const text = count > 9 ? '9+' : String(count);
   const fontSize = count > 9 ? 9 : 11;
-
-  const svg = `
-    <svg width="${size}" height="${size}" xmlns="http://www.w3.org/2000/svg">
-      <circle cx="${size / 2}" cy="${size / 2}" r="${size / 2}" fill="#e74c3c"/>
-      <text x="${size / 2}" y="${size / 2 + fontSize / 3}"
-            text-anchor="middle" fill="white"
-            font-size="${fontSize}" font-weight="bold"
-            font-family="Arial, sans-serif">${text}</text>
-    </svg>`;
-
-  return nativeImage.createFromDataURL(
-    `data:image/svg+xml;base64,${Buffer.from(svg).toString('base64')}`
-  );
+  const svg = `<svg width="${size}" height="${size}" xmlns="http://www.w3.org/2000/svg"><circle cx="${size / 2}" cy="${size / 2}" r="${size / 2}" fill="#e74c3c"/><text x="${size / 2}" y="${size / 2 + fontSize / 3}" text-anchor="middle" fill="white" font-size="${fontSize}" font-weight="bold" font-family="Arial">${text}</text></svg>`;
+  return nativeImage.createFromDataURL(`data:image/svg+xml;base64,${Buffer.from(svg).toString('base64')}`);
 }
 
-// ============================================================
-//  TẠO SYSTEM TRAY
-// ============================================================
+function sendToRenderer(channel, payload) {
+  if (mainWindow && !mainWindow.isDestroyed()) mainWindow.webContents.send(channel, payload);
+}
+function setUpdateState(patch) {
+  updateState = { ...updateState, ...patch };
+  sendToRenderer('update-state', updateState);
+}
+function hashPassword(password, salt = crypto.randomBytes(16).toString('hex')) {
+  const hash = crypto.pbkdf2Sync(password, salt, 120000, 32, 'sha256').toString('hex');
+  return { salt, hash };
+}
+function verifyPassword(password) {
+  if (!settings.lockPasswordHash || !settings.lockSalt) return false;
+  return hashPassword(password, settings.lockSalt).hash === settings.lockPasswordHash;
+}
+
 function createTray() {
   const iconPath = path.join(__dirname, 'icon.png');
   let trayIcon;
-  try {
-    trayIcon = nativeImage.createFromPath(iconPath).resize({ width: 16, height: 16 });
-  } catch {
-    trayIcon = nativeImage.createEmpty();
-  }
+  try { trayIcon = nativeImage.createFromPath(iconPath).resize({ width: 16, height: 16 }); } catch { trayIcon = nativeImage.createEmpty(); }
   tray = new Tray(trayIcon);
   updateTrayMenu();
   tray.setToolTip('Zalo');
-
   tray.on('click', () => {
     if (!mainWindow) return;
-    if (mainWindow.isVisible() && mainWindow.isFocused()) {
-      mainWindow.hide();
-    } else {
-      mainWindow.show();
-      mainWindow.focus();
-    }
+    if (mainWindow.isVisible() && mainWindow.isFocused()) mainWindow.hide();
+    else { mainWindow.show(); mainWindow.focus(); }
   });
-
-  tray.on('double-click', () => {
-    if (!mainWindow) return;
-    mainWindow.show();
-    mainWindow.focus();
-  });
+  tray.on('double-click', () => { if (mainWindow) { mainWindow.show(); mainWindow.focus(); } });
 }
 
 function updateTrayMenu() {
   if (!tray) return;
   const contextMenu = Menu.buildFromTemplate([
     { label: '💬 Mở Zalo', click: () => { mainWindow.show(); mainWindow.focus(); } },
+    { label: '🔒 Khóa ứng dụng', click: lockApp },
     { type: 'separator' },
-    {
-      label: '🔄 Tải lại trang', click: () => {
-        if (activeProfileId && browserViews[activeProfileId]) {
-          browserViews[activeProfileId].webContents.reload();
-        }
-      }
-    },
+    { label: '🔄 Tải lại trang', click: () => activeProfileId && browserViews[activeProfileId]?.webContents.reload() },
     { label: '🚀 Khởi động cùng Windows', type: 'checkbox', checked: settings.autoLaunch, click: (item) => toggleAutoLaunch(item.checked) },
     { label: '📌 Thu nhỏ xuống Tray khi đóng', type: 'checkbox', checked: settings.minimizeToTray, click: (item) => { settings.minimizeToTray = item.checked; saveSettings(settings); } },
     { type: 'separator' },
-    {
-      label: '🛡️ Bảo mật', submenu: [
-        { label: 'Chặn hiển thị "Đã xem"', type: 'checkbox', checked: settings.blockSeen, click: (item) => toggleBlockSeen(item.checked) },
-        { label: 'Chặn hiển thị "Đang nhập"', type: 'checkbox', checked: settings.blockTyping, click: (item) => toggleBlockTyping(item.checked) }
-      ]
-    },
+    { label: '🛡️ Bảo mật', submenu: [
+      { label: 'Chặn hiển thị "Đã xem"', type: 'checkbox', checked: settings.blockSeen, click: (item) => toggleBlockSeen(item.checked) },
+      { label: 'Chặn hiển thị "Đang nhập"', type: 'checkbox', checked: settings.blockTyping, click: (item) => toggleBlockTyping(item.checked) },
+      { label: 'ZaDark Shield', type: 'checkbox', checked: settings.zadarkShield, click: (item) => toggleZadarkShield(item.checked) },
+      { label: 'Khóa khi mở ứng dụng', type: 'checkbox', checked: settings.lockOnStartup, click: (item) => { settings.lockOnStartup = item.checked; saveSettings(settings); } },
+    ] },
     { type: 'separator' },
     { label: '⬇️ Kiểm tra cập nhật', click: () => checkForUpdates(true) },
     { type: 'separator' },
@@ -173,159 +136,53 @@ function updateTrayMenu() {
 }
 
 function broadcastBlockSettings() {
-  const newSettings = { blockSeen: settings.blockSeen, blockTyping: settings.blockTyping };
-  for (const id in browserViews) {
-    if (browserViews[id] && browserViews[id].webContents) {
-      browserViews[id].webContents.send('update-block-settings', newSettings);
-    }
-  }
+  const newSettings = { blockSeen: settings.blockSeen, blockTyping: settings.blockTyping, zadarkShield: settings.zadarkShield };
+  for (const id in browserViews) browserViews[id]?.webContents?.send('update-block-settings', newSettings);
+  sendToRenderer('lock-state', { locked: appLocked, hasPassword: !!settings.lockPasswordHash, zadarkShield: settings.zadarkShield });
 }
-
-function toggleBlockSeen(enable) {
-  settings.blockSeen = enable;
-  saveSettings(settings);
-  broadcastBlockSettings();
-}
-
-function toggleBlockTyping(enable) {
-  settings.blockTyping = enable;
-  saveSettings(settings);
-  broadcastBlockSettings();
-}
-
-// ============================================================
-//  AUTO UPDATER
-// ============================================================
-let isManualUpdateCheck = false;
+function toggleBlockSeen(enable) { settings.blockSeen = enable; saveSettings(settings); broadcastBlockSettings(); }
+function toggleBlockTyping(enable) { settings.blockTyping = enable; saveSettings(settings); broadcastBlockSettings(); }
+function toggleZadarkShield(enable) { settings.zadarkShield = enable; saveSettings(settings); broadcastBlockSettings(); updateTrayMenu(); }
 
 function setupAutoUpdater() {
   autoUpdater.autoDownload = false;
-
-  autoUpdater.on('update-available', (info) => {
-    dialog.showMessageBox({
-      type: 'info',
-      title: 'Có bản cập nhật mới',
-      message: `Đã có bản cập nhật mới v${info.version}. Bạn có muốn tải xuống và cài đặt không?`,
-      buttons: ['Tải xuống', 'Bỏ qua']
-    }).then(result => {
-      if (result.response === 0) {
-        autoUpdater.downloadUpdate();
-      }
-    });
-  });
-
-  autoUpdater.on('update-not-available', (info) => {
-    if (isManualUpdateCheck) {
-      dialog.showMessageBox({
-        title: 'Không có cập nhật',
-        message: 'Bạn đang sử dụng phiên bản mới nhất.'
-      });
-      isManualUpdateCheck = false;
-    }
-  });
-
-  autoUpdater.on('update-downloaded', () => {
-    dialog.showMessageBox({
-      title: 'Đã tải xong cập nhật',
-      message: 'Bản cập nhật đã được tải xuống. Ứng dụng sẽ khởi động lại để cài đặt.',
-      buttons: ['Cài đặt và Khởi động lại']
-    }).then(() => {
-      isQuitting = true;
-      autoUpdater.quitAndInstall();
-    });
-  });
-
-  autoUpdater.on('error', (err) => {
-    if (isManualUpdateCheck) {
-      let errorMessage = err == null ? "Lỗi không xác định" : (err.stack || err).toString();
-      if (errorMessage.includes('No published versions on GitHub') || errorMessage.includes('404 Not Found')) {
-        dialog.showMessageBox({
-          type: 'info',
-          title: 'Thông tin cập nhật',
-          message: 'Chưa có bản cập nhật nào được phát hành. Bạn đang sử dụng phiên bản mới nhất!'
-        });
-      } else {
-        dialog.showErrorBox('Lỗi cập nhật', errorMessage);
-      }
-      isManualUpdateCheck = false;
-    }
-  });
-
-  // Tự động kiểm tra cập nhật khi khởi động
-  setTimeout(() => {
-    autoUpdater.checkForUpdates();
-  }, 5000);
+  autoUpdater.on('checking-for-update', () => setUpdateState({ status: 'checking', progress: 0, message: 'Đang kiểm tra cập nhật...' }));
+  autoUpdater.on('update-available', (info) => setUpdateState({ status: 'available', progress: 0, info, message: `Có bản cập nhật mới v${info.version}.` }));
+  autoUpdater.on('update-not-available', () => { setUpdateState({ status: 'idle', progress: 0, message: 'Bạn đang sử dụng phiên bản mới nhất.' }); isManualUpdateCheck = false; });
+  autoUpdater.on('download-progress', (p) => setUpdateState({ status: 'downloading', progress: Math.round(p.percent || 0), message: `Đang tải cập nhật... ${Math.round(p.percent || 0)}%` }));
+  autoUpdater.on('update-downloaded', () => setUpdateState({ status: 'downloaded', progress: 100, message: 'Đã tải xong. Sẵn sàng cài đặt và khởi động lại.' }));
+  autoUpdater.on('error', (err) => setUpdateState({ status: 'error', message: err == null ? 'Lỗi cập nhật không xác định.' : (err.message || err.toString()).split('\n')[0] }));
+  setTimeout(() => autoUpdater.checkForUpdates().catch(() => {}), 5000);
 }
+let isManualUpdateCheck = false;
+function checkForUpdates(manual = false) { isManualUpdateCheck = manual; autoUpdater.checkForUpdates().catch(err => setUpdateState({ status: 'error', message: (err.message || err.toString()).split('\n')[0] })); }
+function toggleAutoLaunch(enable) { settings.autoLaunch = enable; saveSettings(settings); app.setLoginItemSettings({ openAtLogin: enable, path: app.getPath('exe') }); }
 
-function checkForUpdates(manual = false) {
-  isManualUpdateCheck = manual;
-  autoUpdater.checkForUpdates();
-}
-
-function toggleAutoLaunch(enable) {
-  settings.autoLaunch = enable;
-  saveSettings(settings);
-  app.setLoginItemSettings({ openAtLogin: enable, path: app.getPath('exe') });
-}
-
-// ============================================================
-//  QUẢN LÝ BROWSERVIEW
-// ============================================================
 function updateBrowserViewBounds() {
   if (!mainWindow || !activeProfileId || !browserViews[activeProfileId]) return;
   const bounds = mainWindow.getContentBounds();
-  // Sidebar is 68px wide
-  browserViews[activeProfileId].setBounds({
-    x: 68,
-    y: 0,
-    width: Math.max(bounds.width - 68, 0),
-    height: Math.max(bounds.height, 0)
-  });
+  browserViews[activeProfileId].setBounds({ x: SIDEBAR_WIDTH, y: 0, width: Math.max(bounds.width - SIDEBAR_WIDTH, 0), height: Math.max(bounds.height, 0) });
 }
-
+function isInternalUrl(url) {
+  return ['chat.zalo.me', 'id.zalo.me', 'messenger.com', 'facebook.com', 'web.whatsapp.com', 'whatsapp.com', 'teams.microsoft.com', 'microsoft.com', 'live.com', 'office.com', 'google.com', 'gmail.com', 'web.telegram.org', 'telegram.org', 't.me'].some(d => url.includes(d));
+}
 function setupWebContents(contents, profileId) {
   contents.setWindowOpenHandler(({ url }) => {
-    // Zalo có thể mở url about:blank hoặc blob trước để preview, ta nên cho phép mở trong nội bộ
-    if (url === 'about:blank' || url.startsWith('blob:') || url.startsWith('file:')) {
-      return { action: 'allow' };
-    }
-
-    // TẤT CẢ các link web (kể cả facebook, zalo, zapps...) khi click sẽ MỞ RA TRÌNH DUYỆT NGOÀI
+    if (url === 'about:blank' || url.startsWith('blob:') || url.startsWith('file:')) return { action: 'allow' };
     let finalUrl = url;
-    if (!finalUrl.startsWith('http://') && !finalUrl.startsWith('https://') && !finalUrl.startsWith('mailto:')) {
-      finalUrl = 'https://' + finalUrl;
-    }
-
-    shell.openExternal(finalUrl).catch(err => {
-      console.error('[Main] Lỗi mở external link:', finalUrl, err);
-    });
-    return { action: 'deny' }; // Chặn mở cửa sổ mới trong app
+    if (!finalUrl.startsWith('http://') && !finalUrl.startsWith('https://') && !finalUrl.startsWith('mailto:')) finalUrl = 'https://' + finalUrl;
+    shell.openExternal(finalUrl).catch(err => console.error('[Main] Lỗi mở external link:', finalUrl, err));
+    return { action: 'deny' };
   });
-
   contents.on('will-navigate', (event, url) => {
-    // Nếu là điều hướng nội bộ của các nền tảng hỗ trợ thì cho phép
-    if (url.includes('chat.zalo.me') || url.includes('id.zalo.me') || 
-        url.includes('messenger.com') || url.includes('facebook.com') ||
-        url.includes('web.whatsapp.com') || url.includes('whatsapp.com')) return;
-    
+    if (isInternalUrl(url)) return;
     event.preventDefault();
     let finalUrl = url;
-    if (!finalUrl.startsWith('http://') && !finalUrl.startsWith('https://') && !finalUrl.startsWith('mailto:')) {
-      finalUrl = 'https://' + finalUrl;
-    }
-    shell.openExternal(finalUrl).catch(err => {
-      console.error('[Main] Lỗi mở external link (will-navigate):', finalUrl, err);
-    });
+    if (!finalUrl.startsWith('http://') && !finalUrl.startsWith('https://') && !finalUrl.startsWith('mailto:')) finalUrl = 'https://' + finalUrl;
+    shell.openExternal(finalUrl).catch(err => console.error('[Main] Lỗi mở external link:', finalUrl, err));
   });
-
   contents.on('context-menu', (event, params) => {
     const menu = new Menu();
-    if (params.misspelledWord) {
-      for (const suggestion of params.dictionarySuggestions) {
-        menu.append(new MenuItem({ label: suggestion, click: () => contents.replaceMisspelling(suggestion) }));
-      }
-      if (params.dictionarySuggestions.length > 0) menu.append(new MenuItem({ type: 'separator' }));
-    }
     if (params.selectionText) menu.append(new MenuItem({ label: '📋 Sao chép', role: 'copy' }));
     if (params.isEditable) {
       menu.append(new MenuItem({ label: '📋 Dán', role: 'paste' }));
@@ -346,443 +203,187 @@ function setupWebContents(contents, profileId) {
     menu.append(new MenuItem({ label: '◀️ Quay lại', enabled: contents.canGoBack(), click: () => contents.goBack() }));
     if (menu.items.length > 0) menu.popup({ window: mainWindow });
   });
-
-  contents.on('did-finish-load', async () => {
-    const cssPath = path.join(__dirname, 'custom_style.css');
-    try {
-      const cssData = fs.readFileSync(cssPath, 'utf8');
-      contents.insertCSS(cssData);
-    } catch (e) { }
+  contents.on('did-finish-load', () => {
+    try { contents.insertCSS(fs.readFileSync(path.join(__dirname, 'custom_style.css'), 'utf8')); } catch (e) { }
   });
-
-  const avatarInterval = setInterval(async () => {
-    if (contents.isDestroyed()) {
-      clearInterval(avatarInterval);
-      return;
-    }
-    const avatarScript = `
-      (function() {
-        let nav = document.querySelector('div[role="navigation"]');
-        if (nav) {
-          let images = nav.querySelectorAll('svg image');
-          for (let img of images) {
-            let href = img.getAttribute('xlink:href') || img.getAttribute('href');
-            if (href && (href.includes('scontent') || href.includes('fbcdn'))) return href;
-          }
-        }
-        let images = document.querySelectorAll('svg image');
-        for (let img of images) {
-          let href = img.getAttribute('xlink:href') || img.getAttribute('href');
-          if (href && (href.includes('scontent') || href.includes('fbcdn'))) return href;
-        }
-        let imgs = document.querySelectorAll('img');
-        for (let img of imgs) {
-          if (img.src && (img.src.includes('scontent') || img.src.includes('fbcdn')) && img.width > 20 && img.width < 100) return img.src;
-        }
-        return null;
-      })();
-    `;
-    try {
-      const avatarUrl = await contents.executeJavaScript(avatarScript);
-      if (avatarUrl && mainWindow && profileId) {
-        mainWindow.webContents.send('update-profile-avatar', { id: profileId, avatarUrl });
-      } else {
-        const cookies = await contents.session.cookies.get({ name: 'c_user' });
-        if (cookies && cookies.length > 0) {
-          const uid = cookies[0].value;
-          const fbAvatar = `https://graph.facebook.com/${uid}/picture?width=150&height=150`;
-          if (mainWindow && profileId) {
-            mainWindow.webContents.send('update-profile-avatar', { id: profileId, avatarUrl: fbAvatar });
-          }
-        }
-      }
-    } catch (e) { }
-  }, 5000);
-
   if (app.isPackaged) {
-    contents.on('before-input-event', (event, input) => {
-      if (input.key === 'F12' || (input.control && input.shift && input.key === 'I')) event.preventDefault();
-    });
+    contents.on('before-input-event', (event, input) => { if (input.key === 'F12' || (input.control && input.shift && input.key === 'I')) event.preventDefault(); });
     contents.on('devtools-opened', () => contents.closeDevTools());
   } else {
-    contents.on('before-input-event', (event, input) => {
-      if (input.key === 'F12' || (input.control && input.shift && input.key === 'I')) contents.toggleDevTools();
-    });
+    contents.on('before-input-event', (event, input) => { if (input.key === 'F12' || (input.control && input.shift && input.key === 'I')) contents.toggleDevTools(); });
   }
 }
 
-// ============================================================
-//  TẠO CỬA SỔ CHÍNH
-// ============================================================
+function setupDownloads(sess) {
+  if (sess.__depLaoDownloadsHooked) return;
+  sess.__depLaoDownloadsHooked = true;
+  sess.on('will-download', (event, item) => {
+    const id = `${Date.now()}-${Math.random().toString(16).slice(2)}`;
+    const filename = item.getFilename();
+    const record = { id, filename, url: item.getURL(), savePath: item.getSavePath(), receivedBytes: 0, totalBytes: item.getTotalBytes(), status: 'downloading', statusText: 'Đang tải' };
+    downloads.push(record);
+    sendToRenderer('download-updated', record);
+    item.on('updated', (event, state) => {
+      record.receivedBytes = item.getReceivedBytes();
+      record.totalBytes = item.getTotalBytes();
+      record.savePath = item.getSavePath();
+      record.status = state === 'interrupted' ? 'interrupted' : 'downloading';
+      record.statusText = state === 'interrupted' ? 'Tạm dừng/lỗi kết nối' : 'Đang tải';
+      sendToRenderer('download-updated', { ...record });
+    });
+    item.once('done', (event, state) => {
+      record.receivedBytes = item.getReceivedBytes();
+      record.totalBytes = item.getTotalBytes();
+      record.savePath = item.getSavePath();
+      record.status = state === 'completed' ? 'completed' : state;
+      record.statusText = state === 'completed' ? 'Đã tải xong' : `Kết thúc: ${state}`;
+      sendToRenderer('download-updated', { ...record });
+    });
+  });
+}
+
 function createWindow() {
   const { windowBounds } = settings;
-
   mainWindow = new BrowserWindow({
-    width: windowBounds.width || 1200,
-    height: windowBounds.height || 800,
-    x: windowBounds.x,
-    y: windowBounds.y,
-    minWidth: 400,
-    minHeight: 300,
-    title: 'Zalo',
-    icon: path.join(__dirname, 'icon.png'),
-    backgroundColor: settings.isDarkMode ? '#242526' : '#ffffff',
-    show: !settings.startMinimized,
-    autoHideMenuBar: true,
-    titleBarOverlay: false,
-    webPreferences: {
-      nodeIntegration: true,
-      contextIsolation: false,
-      spellcheck: false,
-    },
+    width: windowBounds.width || 1200, height: windowBounds.height || 800, x: windowBounds.x, y: windowBounds.y,
+    minWidth: 400, minHeight: 300, title: 'Zalo', icon: path.join(__dirname, 'icon.png'),
+    backgroundColor: settings.isDarkMode ? '#242526' : '#ffffff', show: !settings.startMinimized, autoHideMenuBar: true, titleBarOverlay: false,
+    webPreferences: { nodeIntegration: true, contextIsolation: false, spellcheck: false },
   });
 
   app.on('session-created', (sess) => {
-    // Ép các cookie phiên (session cookie) của Zalo thành cookie vĩnh viễn (sống 1 năm)
-    // để tránh bị văng tài khoản khi đóng app hoặc sau 1-2 ngày
+    setupDownloads(sess);
     sess.cookies.on('changed', (event, cookie, cause, removed) => {
-      const domainMatch = cookie.domain && (
-        cookie.domain.includes('zalo.me') ||
-        cookie.domain.includes('messenger.com') ||
-        cookie.domain.includes('facebook.com') ||
-        cookie.domain.includes('whatsapp.com')
-      );
+      const domainMatch = cookie.domain && ['zalo.me', 'messenger.com', 'facebook.com', 'whatsapp.com', 'telegram.org'].some(d => cookie.domain.includes(d));
       if (!removed && cookie.session && domainMatch) {
         const prefix = cookie.domain.startsWith('.') ? 'www' : '';
-        const newCookie = {
-          url: `https://${prefix}${cookie.domain}${cookie.path}`,
-          name: cookie.name,
-          value: cookie.value,
-          domain: cookie.domain,
-          path: cookie.path,
-          secure: cookie.secure,
-          httpOnly: cookie.httpOnly,
-          expirationDate: Math.floor(Date.now() / 1000) + (365 * 24 * 60 * 60) // 1 năm
-        };
-        sess.cookies.set(newCookie).catch(() => {});
+        sess.cookies.set({ url: `https://${prefix}${cookie.domain}${cookie.path}`, name: cookie.name, value: cookie.value, domain: cookie.domain, path: cookie.path, secure: cookie.secure, httpOnly: cookie.httpOnly, expirationDate: Math.floor(Date.now() / 1000) + 31536000 }).catch(() => {});
       }
     });
-
-    // Chặn Request ở cấp độ mạng (Network Level) cho Zalo API
-    // CHÚ Ý: Chỉ chặn POST/PUT request gửi trạng thái (seen/typing),
-    //         KHÔNG chặn GET request vì đó là sync dữ liệu về máy.
-    // === CHẶN NETWORK CHO ZALO ===
     sess.webRequest.onBeforeRequest({ urls: ['*://*.zalo.me/*', '*://*.zadn.vn/*'] }, (details, callback) => {
-      let cancel = false;
-      const method = (details.method || '').toUpperCase();
-
-      if (method === 'GET') { callback({ cancel: false }); return; }
-
+      let cancel = false; const method = (details.method || '').toUpperCase();
+      if (method === 'GET') return callback({ cancel: false });
       const syncSafePatterns = ['/sync', '/conversation', '/api/message/list', '/api/message/get', '/api/group'];
-      if (syncSafePatterns.some(p => details.url.includes(p))) { callback({ cancel: false }); return; }
-
-      if (settings.blockSeen) {
-        if ((details.url.includes('/api/message/read') || details.url.includes('/api/message/seen')) && !details.url.includes('read_status')) {
-          cancel = true;
-          console.log('[DepLao-Main] Chặn Zalo Seen:', details.url);
-        }
-      }
-      if (settings.blockTyping) {
-        if (details.url.includes('/api/message/typing')) {
-          cancel = true;
-          console.log('[DepLao-Main] Chặn Zalo Typing:', details.url);
-        }
-      }
+      if (syncSafePatterns.some(p => details.url.includes(p))) return callback({ cancel: false });
+      if (settings.blockSeen && (details.url.includes('/api/message/read') || details.url.includes('/api/message/seen')) && !details.url.includes('read_status')) cancel = true;
+      if (settings.blockTyping && details.url.includes('/api/message/typing')) cancel = true;
       callback({ cancel });
     });
-
-    // === CHẶN NETWORK CHO MESSENGER ===
     sess.webRequest.onBeforeRequest({ urls: ['*://*.messenger.com/*', '*://*.facebook.com/*'] }, (details, callback) => {
-      let cancel = false;
-      const method = (details.method || '').toUpperCase();
-      if (method === 'GET') { callback({ cancel: false }); return; }
-
-      if (settings.blockSeen) {
-        if (details.url.includes('change_read_status') || details.url.includes('mark_read') || 
-            details.url.includes('read_receipt') || details.url.includes('/ajax/mercury/mark_seen')) {
-          cancel = true;
-          console.log('[DepLao-Main] Chặn Messenger Seen:', details.url);
-        }
-      }
-      if (settings.blockTyping) {
-        if (details.url.includes('typ.php') || details.url.includes('typing_indicator') ||
-            details.url.includes('send_typing_indicator')) {
-          cancel = true;
-          console.log('[DepLao-Main] Chặn Messenger Typing:', details.url);
-        }
-      }
+      let cancel = false; const method = (details.method || '').toUpperCase();
+      if (method === 'GET') return callback({ cancel: false });
+      if (settings.blockSeen && (details.url.includes('change_read_status') || details.url.includes('mark_read') || details.url.includes('read_receipt') || details.url.includes('/ajax/mercury/mark_seen'))) cancel = true;
+      if (settings.blockTyping && (details.url.includes('typ.php') || details.url.includes('typing_indicator') || details.url.includes('send_typing_indicator'))) cancel = true;
       callback({ cancel });
     });
-
-    // === CHẶN NETWORK CHO WHATSAPP ===
-    sess.webRequest.onBeforeRequest({ urls: ['*://*.whatsapp.com/*', '*://web.whatsapp.com/*'] }, (details, callback) => {
-      let cancel = false;
-      const method = (details.method || '').toUpperCase();
-      if (method === 'GET') { callback({ cancel: false }); return; }
-
-      // WhatsApp Web dùng WebSocket chủ yếu, nhưng vẫn chặn HTTP fallback
-      if (settings.blockSeen) {
-        if (details.url.includes('/read') || details.url.includes('receipt')) {
-          cancel = true;
-          console.log('[DepLao-Main] Chặn WhatsApp Seen:', details.url);
-        }
-      }
-      if (settings.blockTyping) {
-        if (details.url.includes('chatstate') || details.url.includes('composing') || details.url.includes('typing')) {
-          cancel = true;
-          console.log('[DepLao-Main] Chặn WhatsApp Typing:', details.url);
-        }
-      }
+    sess.webRequest.onBeforeRequest({ urls: ['*://*.whatsapp.com/*', '*://web.whatsapp.com/*', '*://web.telegram.org/*', '*://*.telegram.org/*'] }, (details, callback) => {
+      let cancel = false; const method = (details.method || '').toUpperCase();
+      if (method === 'GET') return callback({ cancel: false });
+      if (settings.blockSeen && (details.url.includes('/read') || details.url.includes('receipt'))) cancel = true;
+      if (settings.blockTyping && (details.url.includes('chatstate') || details.url.includes('composing') || details.url.includes('typing'))) cancel = true;
       callback({ cancel });
     });
-
     sess.setPermissionRequestHandler((webContents, permission, callback) => {
       const url = webContents.getURL();
-      const isAllowed = url.includes('facebook.com') || url.includes('messenger.com') || url.includes('fbcdn.net') || url.includes('zalo.me') || url.includes('microsoft.com') || url.includes('live.com') || url.includes('office.com') || url.includes('skype.com') || url.includes('microsoftonline.com') || url.includes('google.com') || url.includes('gmail.com') || url.includes('gstatic.com') || url.includes('googleusercontent.com');
-      if (isAllowed) {
-        const allowedPermissions = [
-          'notifications', 'media', 'mediaKeySystem', 'microphone',
-          'camera', 'clipboard-read', 'clipboard-sanitized-write',
-        ];
-        if (allowedPermissions.includes(permission)) {
-          callback(true);
-          return;
-        }
-      }
-      callback(false);
+      const isAllowed = isInternalUrl(url) || url.includes('fbcdn.net') || url.includes('gstatic.com') || url.includes('googleusercontent.com');
+      const allowedPermissions = ['notifications', 'media', 'mediaKeySystem', 'microphone', 'camera', 'clipboard-read', 'clipboard-sanitized-write'];
+      callback(!!isAllowed && allowedPermissions.includes(permission));
     });
-
-    sess.setPermissionCheckHandler((webContents, permission) => {
-      const url = webContents?.getURL() || '';
-      if (url.includes('facebook.com') || url.includes('messenger.com') || url.includes('zalo.me') || url.includes('microsoft.com') || url.includes('live.com') || url.includes('office.com') || url.includes('skype.com') || url.includes('microsoftonline.com') || url.includes('google.com') || url.includes('gmail.com') || url.includes('gstatic.com') || url.includes('googleusercontent.com')) {
-        return true;
-      }
-      return false;
-    });
+    sess.setPermissionCheckHandler((webContents) => isInternalUrl(webContents?.getURL() || ''));
   });
 
   mainWindow.loadFile('index.html');
-
-  if (app.isPackaged) {
-    mainWindow.webContents.on('before-input-event', (event, input) => {
-      if (input.key === 'F12' || (input.control && input.shift && input.key === 'I')) event.preventDefault();
-    });
-    mainWindow.webContents.on('devtools-opened', () => mainWindow.webContents.closeDevTools());
-  } else {
-    mainWindow.webContents.on('before-input-event', (event, input) => {
-      if (input.key === 'F12' || (input.control && input.shift && input.key === 'I')) mainWindow.webContents.toggleDevTools();
-    });
-  }
-
-  mainWindow.on('focus', () => {
-    mainWindow.flashFrame(false);
+  mainWindow.webContents.on('before-input-event', (event, input) => {
+    if (app.isPackaged && (input.key === 'F12' || (input.control && input.shift && input.key === 'I'))) event.preventDefault();
+    else if (!app.isPackaged && (input.key === 'F12' || (input.control && input.shift && input.key === 'I'))) mainWindow.webContents.toggleDevTools();
   });
-
+  mainWindow.on('focus', () => mainWindow.flashFrame(false));
   mainWindow.on('resize', updateBrowserViewBounds);
   mainWindow.on('maximize', updateBrowserViewBounds);
   mainWindow.on('unmaximize', updateBrowserViewBounds);
-
   mainWindow.on('close', (event) => {
-    if (!isQuitting && settings.minimizeToTray) {
-      event.preventDefault();
-      mainWindow.hide();
-      return;
-    }
-    settings.windowBounds = mainWindow.getBounds();
-    saveSettings(settings);
+    if (!isQuitting && settings.minimizeToTray) { event.preventDefault(); mainWindow.hide(); return; }
+    settings.windowBounds = mainWindow.getBounds(); saveSettings(settings);
   });
 
-  // IPC
   ipcMain.on('switch-profile', (event, profile) => {
+    if (appLocked) return;
     activeProfileId = profile.id;
     if (!browserViews[profile.id]) {
-      const view = new BrowserView({
-        webPreferences: {
-          partition: profile.partition,
-          preload: path.join(__dirname, 'preload.js'),
-          contextIsolation: true,
-          nodeIntegration: false,
-        }
-      });
+      const view = new BrowserView({ webPreferences: { partition: profile.partition, preload: path.join(__dirname, 'preload.js'), contextIsolation: true, nodeIntegration: false } });
       browserViews[profile.id] = view;
       setupWebContents(view.webContents, profile.id);
-
-      // Cài đặt proxy
       const sess = session.fromPartition(profile.partition);
+      setupDownloads(sess);
       if (profile.proxy) {
-        let proxyRules = profile.proxy;
-        const parts = profile.proxy.trim().split(':');
-        if (parts.length === 4) {
-          proxyRules = `http://${parts[0]}:${parts[1]}`;
-          proxyCredentials[`${parts[0]}:${parts[1]}`] = { username: parts[2], password: parts[3] };
-        } else if (parts.length === 2 && !profile.proxy.includes('://')) {
-          proxyRules = `http://${parts[0]}:${parts[1]}`;
-        }
+        let proxyRules = profile.proxy; const parts = profile.proxy.trim().split(':');
+        if (parts.length === 4) { proxyRules = `http://${parts[0]}:${parts[1]}`; proxyCredentials[`${parts[0]}:${parts[1]}`] = { username: parts[2], password: parts[3] }; }
+        else if (parts.length === 2 && !profile.proxy.includes('://')) proxyRules = `http://${parts[0]}:${parts[1]}`;
         sess.setProxy({ proxyRules });
-        console.log(`[DepLao] Đã cấu hình Proxy [${proxyRules}] cho tài khoản ${profile.name}`);
-      } else {
-        sess.setProxy({ proxyRules: 'direct://' });
-      }
-
-      let url = ZALO_URL;
-      let ua = USER_AGENT;
-      if (profile.platform === 'messenger') {
-        url = 'https://www.messenger.com/';
-      } else if (profile.platform === 'whatsapp') {
-        url = 'https://web.whatsapp.com/';
-        // WhatsApp Web cần User-Agent Chrome mới nhất
-        ua = 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/126.0.0.0 Safari/537.36';
-      } else if (profile.platform === 'teams') {
-        url = 'https://teams.microsoft.com/';
-      } else if (profile.platform === 'gmail') {
-        url = 'https://mail.google.com/';
-      }
+      } else sess.setProxy({ proxyRules: 'direct://' });
+      let url = ZALO_URL; let ua = USER_AGENT;
+      if (profile.platform === 'messenger') url = 'https://www.messenger.com/';
+      else if (profile.platform === 'fanpage') url = 'https://business.facebook.com/';
+      else if (profile.platform === 'whatsapp') url = 'https://web.whatsapp.com/';
+      else if (profile.platform === 'teams') url = 'https://teams.microsoft.com/';
+      else if (profile.platform === 'gmail') url = 'https://mail.google.com/';
+      else if (profile.platform === 'telegram') url = 'https://web.telegram.org/a/';
       view.webContents.loadURL(url, { userAgent: ua });
     }
-    mainWindow.setBrowserView(browserViews[profile.id]);
-    updateBrowserViewBounds();
+    mainWindow.setBrowserView(browserViews[profile.id]); updateBrowserViewBounds();
   });
-
   ipcMain.on('update-profile-settings', (event, profile) => {
     const sess = session.fromPartition(profile.partition);
     if (profile.proxy) {
-      let proxyRules = profile.proxy;
-      const parts = profile.proxy.trim().split(':');
-      if (parts.length === 4) {
-        proxyRules = `http://${parts[0]}:${parts[1]}`;
-        proxyCredentials[`${parts[0]}:${parts[1]}`] = { username: parts[2], password: parts[3] };
-      } else if (parts.length === 2 && !profile.proxy.includes('://')) {
-        proxyRules = `http://${parts[0]}:${parts[1]}`;
-      }
+      let proxyRules = profile.proxy; const parts = profile.proxy.trim().split(':');
+      if (parts.length === 4) { proxyRules = `http://${parts[0]}:${parts[1]}`; proxyCredentials[`${parts[0]}:${parts[1]}`] = { username: parts[2], password: parts[3] }; }
+      else if (parts.length === 2 && !profile.proxy.includes('://')) proxyRules = `http://${parts[0]}:${parts[1]}`;
       sess.setProxy({ proxyRules });
-      console.log(`[DepLao] Đã cập nhật Proxy [${proxyRules}] cho tài khoản ${profile.name}`);
-    } else {
-      sess.setProxy({ proxyRules: 'direct://' });
-      console.log(`[DepLao] Đã gỡ Proxy cho tài khoản ${profile.name}`);
-    }
+    } else sess.setProxy({ proxyRules: 'direct://' });
   });
-
-  ipcMain.on('set-browserview-visibility', (event, visible) => {
-    if (!mainWindow) return;
-    if (visible && activeProfileId && browserViews[activeProfileId]) {
-      mainWindow.setBrowserView(browserViews[activeProfileId]);
-      updateBrowserViewBounds();
-    } else {
-      mainWindow.setBrowserView(null);
-    }
-  });
-
-  ipcMain.on('delete-profile', (event, id) => {
-    if (browserViews[id]) {
-      browserViews[id].webContents.destroy();
-      delete browserViews[id];
-    }
-  });
-
-  ipcMain.on('update-badge', (event, count) => {
-    if (count !== unreadCount) {
-      const hadNewMessages = count > unreadCount;
-      unreadCount = count;
-      updateBadge(unreadCount);
-      if (hadNewMessages && !mainWindow.isFocused()) {
-        mainWindow.flashFrame(true);
-      }
-    }
-  });
-
-  ipcMain.on('set-theme', (event, isDark) => {
-    settings.isDarkMode = isDark;
-    saveSettings(settings);
-    nativeTheme.themeSource = isDark ? 'dark' : 'light';
-  });
-
-  ipcMain.on('toggle-always-on-top', () => {
-    settings.alwaysOnTop = !settings.alwaysOnTop;
-    mainWindow.setAlwaysOnTop(settings.alwaysOnTop);
-    saveSettings(settings);
-  });
-
-  ipcMain.on('toggle-fullscreen', () => {
-    mainWindow.setFullScreen(!mainWindow.isFullScreen());
-    setTimeout(updateBrowserViewBounds, 100);
-  });
-
-  ipcMain.on('zoom-in', () => {
-    if (activeProfileId && browserViews[activeProfileId]) {
-      const wc = browserViews[activeProfileId].webContents;
-      wc.setZoomLevel(wc.getZoomLevel() + 0.5);
-    }
-  });
-
-  ipcMain.on('zoom-out', () => {
-    if (activeProfileId && browserViews[activeProfileId]) {
-      const wc = browserViews[activeProfileId].webContents;
-      wc.setZoomLevel(wc.getZoomLevel() - 0.5);
-    }
-  });
-
-  ipcMain.on('reload-page', () => {
-    if (activeProfileId && browserViews[activeProfileId]) {
-      browserViews[activeProfileId].webContents.reload();
-    }
-  });
-
-  ipcMain.on('get-settings', (event) => {
-    event.returnValue = {
-      isDarkMode: settings.isDarkMode,
-      alwaysOnTop: settings.alwaysOnTop,
-      blockSeen: settings.blockSeen,
-      blockTyping: settings.blockTyping,
-    };
-  });
-
-  ipcMain.on('check-for-updates', () => {
-    checkForUpdates(true);
-  });
+  ipcMain.on('set-browserview-visibility', (event, visible) => { if (!mainWindow) return; if (visible && !appLocked && activeProfileId && browserViews[activeProfileId]) { mainWindow.setBrowserView(browserViews[activeProfileId]); updateBrowserViewBounds(); } else mainWindow.setBrowserView(null); });
+  ipcMain.on('delete-profile', (event, id) => { if (browserViews[id]) { browserViews[id].webContents.destroy(); delete browserViews[id]; } });
+  ipcMain.on('update-badge', (event, count) => { if (count !== unreadCount) { const hadNewMessages = count > unreadCount; unreadCount = count; updateBadge(unreadCount); if (hadNewMessages && !mainWindow.isFocused()) mainWindow.flashFrame(true); } });
+  ipcMain.on('set-theme', (event, isDark) => { settings.isDarkMode = isDark; saveSettings(settings); nativeTheme.themeSource = isDark ? 'dark' : 'light'; });
+  ipcMain.on('toggle-always-on-top', () => { settings.alwaysOnTop = !settings.alwaysOnTop; mainWindow.setAlwaysOnTop(settings.alwaysOnTop); saveSettings(settings); });
+  ipcMain.on('toggle-fullscreen', () => { mainWindow.setFullScreen(!mainWindow.isFullScreen()); setTimeout(updateBrowserViewBounds, 100); });
+  ipcMain.on('zoom-in', () => { const wc = activeProfileId && browserViews[activeProfileId]?.webContents; if (wc) wc.setZoomLevel(wc.getZoomLevel() + 0.5); });
+  ipcMain.on('zoom-out', () => { const wc = activeProfileId && browserViews[activeProfileId]?.webContents; if (wc) wc.setZoomLevel(wc.getZoomLevel() - 0.5); });
+  ipcMain.on('reload-page', () => activeProfileId && browserViews[activeProfileId]?.webContents.reload());
+  ipcMain.on('get-settings', (event) => { event.returnValue = { isDarkMode: settings.isDarkMode, alwaysOnTop: settings.alwaysOnTop, blockSeen: settings.blockSeen, blockTyping: settings.blockTyping, zadarkShield: settings.zadarkShield, lockOnStartup: settings.lockOnStartup, hasLockPassword: !!settings.lockPasswordHash, quickReplies: settings.quickReplies || [] }; });
+  ipcMain.on('get-quick-replies', (event) => { event.returnValue = settings.quickReplies || []; });
+  ipcMain.on('save-quick-replies', (event, replies) => { settings.quickReplies = replies || []; saveSettings(settings); for (const id in browserViews) browserViews[id]?.webContents?.send('update-quick-replies', settings.quickReplies); });
+  ipcMain.on('renderer-ready', () => sendToRenderer('lock-state', { locked: settings.lockOnStartup || appLocked, hasPassword: !!settings.lockPasswordHash, zadarkShield: settings.zadarkShield }));
+  ipcMain.on('check-for-updates', () => checkForUpdates(true));
+  ipcMain.on('download-update', () => autoUpdater.downloadUpdate().catch(err => setUpdateState({ status: 'error', message: (err.message || err.toString()).split('\n')[0] })));
+  ipcMain.on('install-update', () => { isQuitting = true; autoUpdater.quitAndInstall(); });
+  ipcMain.on('get-update-state', () => sendToRenderer('update-state', updateState));
+  ipcMain.on('get-downloads', () => sendToRenderer('downloads-list', downloads));
+  ipcMain.on('open-download', (event, id) => { const d = downloads.find(x => x.id === id); if (d?.savePath) shell.openPath(d.savePath); });
+  ipcMain.on('show-download-in-folder', (event, id) => { const d = downloads.find(x => x.id === id); if (d?.savePath) shell.showItemInFolder(d.savePath); });
+  ipcMain.on('remove-download', (event, id) => { downloads = downloads.filter(x => x.id !== id); sendToRenderer('downloads-list', downloads); });
+  ipcMain.on('toggle-zadark-shield', () => toggleZadarkShield(!settings.zadarkShield));
+  ipcMain.on('lock-app', lockApp);
+  ipcMain.on('set-lock-password', (event, password) => { const result = hashPassword(password); settings.lockSalt = result.salt; settings.lockPasswordHash = result.hash; settings.lockOnStartup = true; saveSettings(settings); unlockApp(true); updateTrayMenu(); });
+  ipcMain.on('unlock-app', (event, password) => unlockApp(verifyPassword(password)));
 }
 
-// ============================================================
-//  CẬP NHẬT BADGE TRÊN TASKBAR & TRAY
-// ============================================================
+function lockApp() { appLocked = true; if (mainWindow) mainWindow.setBrowserView(null); sendToRenderer('lock-state', { locked: true, hasPassword: !!settings.lockPasswordHash, zadarkShield: settings.zadarkShield }); }
+function unlockApp(ok) { if (ok) { appLocked = false; sendToRenderer('unlock-result', { ok: true }); if (mainWindow && activeProfileId && browserViews[activeProfileId]) { mainWindow.setBrowserView(browserViews[activeProfileId]); updateBrowserViewBounds(); } } else sendToRenderer('unlock-result', { ok: false, message: 'Sai mật khẩu.' }); }
+
 function updateBadge(count) {
   if (!mainWindow) return;
   if (process.platform === 'win32') {
-    if (count > 0) {
-      try {
-        mainWindow.setOverlayIcon(createBadgeIcon(count), `${count} tin nhắn chưa đọc`);
-      } catch {
-        mainWindow.setOverlayIcon(null, '');
-      }
-    } else {
-      mainWindow.setOverlayIcon(null, '');
-    }
+    if (count > 0) { try { mainWindow.setOverlayIcon(createBadgeIcon(count), `${count} tin nhắn chưa đọc`); } catch { mainWindow.setOverlayIcon(null, ''); } }
+    else mainWindow.setOverlayIcon(null, '');
   }
-  if (tray) {
-    tray.setToolTip(count > 0 ? `Zalo — ${count} tin nhắn chưa đọc` : 'Zalo');
-  }
+  if (tray) tray.setToolTip(count > 0 ? `Zalo — ${count} tin nhắn chưa đọc` : 'Zalo');
 }
-
-// ============================================================
-//  ĐĂNG KÝ PHÍM TẮT
-// ============================================================
 function registerGlobalShortcuts() {
   const hotkey = settings.globalHotkey || 'Ctrl+Shift+M';
-  try {
-    globalShortcut.register(hotkey, () => {
-      if (!mainWindow) return;
-      if (mainWindow.isVisible() && mainWindow.isFocused()) {
-        mainWindow.hide();
-      } else {
-        mainWindow.show();
-        mainWindow.focus();
-      }
-    });
-  } catch (err) { }
+  try { globalShortcut.register(hotkey, () => { if (!mainWindow) return; if (mainWindow.isVisible() && mainWindow.isFocused()) mainWindow.hide(); else { mainWindow.show(); mainWindow.focus(); } }); } catch (err) { }
 }
 
-// ============================================================
-//  KHỞI ĐỘNG ỨNG DỤNG
-// ============================================================
 app.whenReady().then(() => {
   Menu.setApplicationMenu(null);
   nativeTheme.themeSource = settings.isDarkMode ? 'dark' : 'light';
@@ -790,46 +391,16 @@ app.whenReady().then(() => {
   createTray();
   registerGlobalShortcuts();
   setupAutoUpdater();
-
-  app.on('second-instance', () => {
-    if (mainWindow) {
-      if (mainWindow.isMinimized()) mainWindow.restore();
-      mainWindow.show();
-      mainWindow.focus();
-    }
-  });
-
-  app.on('activate', () => {
-    if (BrowserWindow.getAllWindows().length === 0) createWindow();
-  });
+  app.on('second-instance', () => { if (mainWindow) { if (mainWindow.isMinimized()) mainWindow.restore(); mainWindow.show(); mainWindow.focus(); } });
+  app.on('activate', () => { if (BrowserWindow.getAllWindows().length === 0) createWindow(); });
 });
 
-// ============================================================
-//  XỬ LÝ THOÁT VÀ LOGIN TRÁNH LỖI PROXY
-// ============================================================
 app.on('login', (event, webContents, details, authInfo, callback) => {
   if (authInfo.isProxy) {
     const hostPort = `${authInfo.host}:${authInfo.port}`;
-    if (proxyCredentials[hostPort]) {
-      event.preventDefault();
-      callback(proxyCredentials[hostPort].username, proxyCredentials[hostPort].password);
-    }
+    if (proxyCredentials[hostPort]) { event.preventDefault(); callback(proxyCredentials[hostPort].username, proxyCredentials[hostPort].password); }
   }
 });
-
-app.on('before-quit', () => {
-  isQuitting = true;
-  if (mainWindow) {
-    settings.windowBounds = mainWindow.getBounds();
-    saveSettings(settings);
-  }
-});
-
-app.on('will-quit', () => {
-  globalShortcut.unregisterAll();
-});
-
-app.on('window-all-closed', () => {
-  if (process.platform !== 'darwin') app.quit();
-});
-
+app.on('before-quit', () => { isQuitting = true; if (mainWindow) { settings.windowBounds = mainWindow.getBounds(); saveSettings(settings); } });
+app.on('will-quit', () => globalShortcut.unregisterAll());
+app.on('window-all-closed', () => { if (process.platform !== 'darwin') app.quit(); });
