@@ -9,6 +9,7 @@ contextBridge.exposeInMainWorld('messengerApp', {
   zoomOut: () => ipcRenderer.send('zoom-out'),
   toggleFullscreen: () => ipcRenderer.send('toggle-fullscreen'),
   getSettings: () => ipcRenderer.sendSync('get-settings'),
+  sendProfileInfo: (info) => ipcRenderer.send('profile-info-extracted', info),
 });
 
 const settings = ipcRenderer.sendSync('get-settings');
@@ -217,6 +218,58 @@ function runInjection(currentSettings) {
         }, true);
       }
       setTimeout(setupQuickReplyShortcuts, 3000);
+
+      // Auto extract profile name & avatar
+      function extractProfileInfo() {
+        var info = { name: '', avatar: '' };
+        try {
+          if (isZalo) {
+            try { require('fs').writeFileSync('/Users/tiodev/Desktop/ZaloPre/zalo_dom.html', document.documentElement.outerHTML); } catch (e) {}
+            var nameEl = document.querySelector('.str-name') || document.querySelector('.header-title');
+            var avatarEl = document.querySelector('.nav__tabs__avatar img, .zavatar-img, .zavatar img, .avatar-img');
+            if (!avatarEl) {
+              var imgs = Array.from(document.querySelectorAll('img'));
+              avatarEl = imgs.find(img => img.src && (img.src.includes('ava') || img.src.includes('zavatar')));
+              if (!avatarEl && imgs.length > 0) avatarEl = imgs[0];
+            }
+            if (nameEl) info.name = nameEl.innerText.trim();
+            if (avatarEl) info.avatar = avatarEl.src;
+          } else if (isMessenger) {
+            var titleEl = document.querySelector('title');
+            if (titleEl && titleEl.innerText) {
+              var t = titleEl.innerText;
+              if (t.includes('(')) t = t.substring(t.indexOf(')') + 1);
+              info.name = t.replace('Messenger', '').trim();
+            }
+            var avatarEl = document.querySelector('img[role="img"]') || document.querySelector('image[preserveAspectRatio="xMidYMid slice"]');
+            if (avatarEl) info.avatar = avatarEl.src || avatarEl.getAttribute('xlink:href');
+          } else if (isWhatsApp) {
+            var nameEl = document.querySelector('h1.tvf2evcx') || document.querySelector('header span[dir="auto"]');
+            var avatarEl = document.querySelector('header img');
+            if (nameEl) info.name = nameEl.innerText.trim();
+            if (avatarEl) info.avatar = avatarEl.src;
+          } else if (isTelegram) {
+            var nameEl = document.querySelector('.peer-title');
+            var avatarEl = document.querySelector('.Avatar img');
+            if (nameEl) info.name = nameEl.innerText.trim();
+            if (avatarEl) info.avatar = avatarEl.src;
+          } else if (host.includes('facebook.com')) {
+            var nameEl = document.querySelector('h1') || document.querySelector('title');
+            var avatarEl = document.querySelector('img[referrerpolicy="origin-when-cross-origin"]');
+            if (nameEl) {
+              var t = nameEl.innerText || '';
+              if (t.includes('(')) t = t.substring(t.indexOf(')') + 1);
+              info.name = t.replace('Facebook', '').trim();
+            }
+            if (avatarEl) info.avatar = avatarEl.src;
+          }
+        } catch (e) { console.error('Extracted error', e); }
+        if (info.name || info.avatar) {
+          try { window.messengerApp.sendProfileInfo(info); } catch (e) { console.error('sendProfileInfo error', e); }
+        }
+      }
+      setInterval(extractProfileInfo, 5000);
+
       console.log('[DepLao] Shield ready:', platform, window.__DepLaoBlockSeen, window.__DepLaoBlockTyping, window.__DepLaoZaDarkShield);
     })();
   `;

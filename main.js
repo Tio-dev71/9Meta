@@ -1,5 +1,5 @@
 // ============================================================
-//  Ứng dụng Zalo Desktop
+//  Ứng dụng 9Meta Desktop
 //  Nhân: Chromium (Google Chrome)
 //  Tác giả: Nguyễn Đình Thọ
 // ============================================================
@@ -102,7 +102,7 @@ function createTray() {
   try { trayIcon = nativeImage.createFromPath(iconPath).resize({ width: 16, height: 16 }); } catch { trayIcon = nativeImage.createEmpty(); }
   tray = new Tray(trayIcon);
   updateTrayMenu();
-  tray.setToolTip('Zalo');
+  tray.setToolTip('9Meta');
   tray.on('click', () => {
     if (!mainWindow) return;
     if (mainWindow.isVisible() && mainWindow.isFocused()) mainWindow.hide();
@@ -114,7 +114,7 @@ function createTray() {
 function updateTrayMenu() {
   if (!tray) return;
   const contextMenu = Menu.buildFromTemplate([
-    { label: '💬 Mở Zalo', click: () => { mainWindow.show(); mainWindow.focus(); } },
+    { label: '💬 Mở 9Meta', click: () => { mainWindow.show(); mainWindow.focus(); } },
     { label: '🔒 Khóa ứng dụng', click: lockApp },
     { type: 'separator' },
     { label: '🔄 Tải lại trang', click: () => activeProfileId && browserViews[activeProfileId]?.webContents.reload() },
@@ -161,7 +161,9 @@ function toggleAutoLaunch(enable) { settings.autoLaunch = enable; saveSettings(s
 function updateBrowserViewBounds() {
   if (!mainWindow || !activeProfileId || !browserViews[activeProfileId]) return;
   const bounds = mainWindow.getContentBounds();
-  browserViews[activeProfileId].setBounds({ x: SIDEBAR_WIDTH, y: 0, width: Math.max(bounds.width - SIDEBAR_WIDTH, 0), height: Math.max(bounds.height, 0) });
+  const view = browserViews[activeProfileId];
+  view.setBounds({ x: SIDEBAR_WIDTH, y: 0, width: Math.max(bounds.width - SIDEBAR_WIDTH, 0), height: Math.max(bounds.height, 0) });
+  view.setAutoResize({ width: true, height: true });
 }
 function isInternalUrl(url) {
   return ['chat.zalo.me', 'id.zalo.me', 'messenger.com', 'facebook.com', 'web.whatsapp.com', 'whatsapp.com', 'teams.microsoft.com', 'microsoft.com', 'live.com', 'office.com', 'google.com', 'gmail.com', 'web.telegram.org', 'telegram.org', 't.me'].some(d => url.includes(d));
@@ -169,6 +171,7 @@ function isInternalUrl(url) {
 function setupWebContents(contents, profileId) {
   contents.setWindowOpenHandler(({ url }) => {
     if (url === 'about:blank' || url.startsWith('blob:') || url.startsWith('file:')) return { action: 'allow' };
+    if (isInternalUrl(url)) return { action: 'allow' };
     let finalUrl = url;
     if (!finalUrl.startsWith('http://') && !finalUrl.startsWith('https://') && !finalUrl.startsWith('mailto:')) finalUrl = 'https://' + finalUrl;
     shell.openExternal(finalUrl).catch(err => console.error('[Main] Lỗi mở external link:', finalUrl, err));
@@ -246,7 +249,7 @@ function createWindow() {
   const { windowBounds } = settings;
   mainWindow = new BrowserWindow({
     width: windowBounds.width || 1200, height: windowBounds.height || 800, x: windowBounds.x, y: windowBounds.y,
-    minWidth: 400, minHeight: 300, title: 'Zalo', icon: path.join(__dirname, 'icon.png'),
+    minWidth: 400, minHeight: 300, title: '9Meta', icon: path.join(__dirname, 'icon.png'),
     backgroundColor: settings.isDarkMode ? '#242526' : '#ffffff', show: !settings.startMinimized, autoHideMenuBar: true, titleBarOverlay: false,
     webPreferences: { nodeIntegration: true, contextIsolation: false, spellcheck: false },
   });
@@ -323,7 +326,7 @@ function createWindow() {
       } else sess.setProxy({ proxyRules: 'direct://' });
       let url = ZALO_URL; let ua = USER_AGENT;
       if (profile.platform === 'messenger') url = 'https://www.messenger.com/';
-      else if (profile.platform === 'fanpage') url = 'https://business.facebook.com/';
+      else if (profile.platform === 'fanpage') url = 'https://www.facebook.com/latest/inbox/';
       else if (profile.platform === 'whatsapp') url = 'https://web.whatsapp.com/';
       else if (profile.platform === 'teams') url = 'https://teams.microsoft.com/';
       else if (profile.platform === 'gmail') url = 'https://mail.google.com/';
@@ -343,6 +346,15 @@ function createWindow() {
   });
   ipcMain.on('set-browserview-visibility', (event, visible) => { if (!mainWindow) return; if (visible && !appLocked && activeProfileId && browserViews[activeProfileId]) { mainWindow.setBrowserView(browserViews[activeProfileId]); updateBrowserViewBounds(); } else mainWindow.setBrowserView(null); });
   ipcMain.on('delete-profile', (event, id) => { if (browserViews[id]) { browserViews[id].webContents.destroy(); delete browserViews[id]; } });
+  
+  ipcMain.on('profile-info-extracted', (event, info) => {
+    let senderId = null;
+    for (const [id, view] of Object.entries(browserViews)) {
+      if (view.webContents === event.sender) { senderId = id; break; }
+    }
+    if (senderId) sendToRenderer('update-profile-info', { id: senderId, name: info.name, avatarUrl: info.avatar });
+  });
+
   ipcMain.on('update-badge', (event, count) => { if (count !== unreadCount) { const hadNewMessages = count > unreadCount; unreadCount = count; updateBadge(unreadCount); if (hadNewMessages && !mainWindow.isFocused()) mainWindow.flashFrame(true); } });
   ipcMain.on('set-theme', (event, isDark) => { settings.isDarkMode = isDark; saveSettings(settings); nativeTheme.themeSource = isDark ? 'dark' : 'light'; });
   ipcMain.on('toggle-always-on-top', () => { settings.alwaysOnTop = !settings.alwaysOnTop; mainWindow.setAlwaysOnTop(settings.alwaysOnTop); saveSettings(settings); });
@@ -377,7 +389,7 @@ function updateBadge(count) {
     if (count > 0) { try { mainWindow.setOverlayIcon(createBadgeIcon(count), `${count} tin nhắn chưa đọc`); } catch { mainWindow.setOverlayIcon(null, ''); } }
     else mainWindow.setOverlayIcon(null, '');
   }
-  if (tray) tray.setToolTip(count > 0 ? `Zalo — ${count} tin nhắn chưa đọc` : 'Zalo');
+  if (tray) tray.setToolTip(count > 0 ? `9Meta — ${count} tin nhắn chưa đọc` : '9Meta');
 }
 function registerGlobalShortcuts() {
   const hotkey = settings.globalHotkey || 'Ctrl+Shift+M';

@@ -116,8 +116,8 @@ document.getElementById('modal-delete').onclick = () => {
 };
 document.getElementById('modal-cancel').onclick = () => { modalOverlay.style.display = 'none'; ipcRenderer.send('set-browserview-visibility', true); };
 document.getElementById('modal-save').onclick = () => {
-  const name = nameInput.value.trim();
-  if (!name) return alert('Vui lòng nhập tên tài khoản!');
+  let name = nameInput.value.trim();
+  if (!name) name = `Tài khoản ${profiles.length + 1}`;
   if (editingProfile) {
     editingProfile.name = name;
     editingProfile.avatar = tempAvatarPath;
@@ -289,6 +289,15 @@ ipcRenderer.on('update-profile-avatar', (event, { id, avatarUrl }) => {
   if (p) {
     const isAutoAvatar = !p.avatar || p.avatar.includes('graph.facebook.com') || p.avatar.includes('scontent') || p.avatar.includes('fbcdn');
     if (isAutoAvatar && p.avatar !== avatarUrl) { p.avatar = avatarUrl; saveProfiles(); renderSidebar(); }
+  }
+});
+ipcRenderer.on('update-profile-info', (event, { id, name, avatarUrl }) => {
+  const p = profiles.find(x => x.id === id);
+  if (p) {
+    let changed = false;
+    if (name && p.name.startsWith('Tài khoản ')) { p.name = name; changed = true; }
+    if (avatarUrl && !p.avatar) { p.avatar = avatarUrl; changed = true; }
+    if (changed) { saveProfiles(); renderSidebar(); }
   }
 });
 

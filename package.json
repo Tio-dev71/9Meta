@@ -1,7 +1,7 @@
 {
-  "name": "dep-lao",
-  "version": "1.2.0",
-  "description": "Ứng dụng Dép Lào Desktop - Chạy trên nhân Chrome (Chromium)",
+  "name": "9meta",
+  "version": "1.4.0",
+  "description": "9Meta - Quản lý đa tài khoản Zalo, Messenger, Fanpage, Telegram, WhatsApp",
   "main": "main.js",
   "scripts": {
     "start": "electron .",
@@ -11,7 +11,7 @@
   },
   "build": {
     "appId": "com.Zalo.desktop",
-    "productName": "Zalo",
+    "productName": "9Meta",
     "directories": {
       "output": "dist"
     },
@@ -38,14 +38,14 @@
       "category": "public.app-category.social-networking"
     },
     "dmg": {
-      "title": "Zalo",
-      "artifactName": "Zalo-${version}-mac.${ext}"
+      "title": "9Meta",
+      "artifactName": "9Meta-${version}-mac.${ext}"
     },
     "nsis": {
       "oneClick": false,
       "perMachine": false,
       "allowToChangeInstallationDirectory": true,
-      "shortcutName": "Dép Lào"
+      "shortcutName": "9Meta"
     },
     "files": [
       "main.js",
@@ -66,8 +66,8 @@
     ]
   },
   "keywords": [
-    "Zalo",
-    "Zalo",
+    "9Meta",
+    "multi-account",
     "desktop",
     "electron"
   ],
