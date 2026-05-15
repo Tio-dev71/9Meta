@@ -1,6 +1,6 @@
 {
   "name": "9meta",
-  "version": "1.4.0",
+  "version": "1.4.1",
   "description": "9Meta - Quản lý đa tài khoản Zalo, Messenger, Fanpage, Telegram, WhatsApp",
   "main": "main.js",
   "scripts": {
@@ -10,7 +10,7 @@
     "build:portable": "electron-builder --win portable --x64"
   },
   "build": {
-    "appId": "com.Zalo.desktop",
+    "appId": "com.zalo.desktop",
     "productName": "9Meta",
     "directories": {
       "output": "dist"
@@ -29,6 +29,12 @@
       "target": [
         {
           "target": "dmg",
+          "arch": [
+            "universal"
+          ]
+        },
+        {
+          "target": "zip",
           "arch": [
             "universal"
           ]
