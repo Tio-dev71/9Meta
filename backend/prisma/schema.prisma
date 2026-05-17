@@ -1,0 +1,88 @@
+generator client {
+  provider = "prisma-client-js"
+}
+
+datasource db {
+  provider = "postgresql"
+  url      = env("DATABASE_URL")
+}
+
+enum SubscriptionStatus {
+  trialing
+  active
+  past_due
+  canceled
+  expired
+}
+
+model User {
+  id            String         @id @default(uuid())
+  email         String         @unique
+  passwordHash  String
+  createdAt     DateTime       @default(now())
+  updatedAt     DateTime       @updatedAt
+  subscriptions Subscription[]
+  devices       AppDevice[]
+  payments      PaymentEvent[]
+}
+
+model Plan {
+  code               String         @id
+  name               String
+  monthlyPrice       Int
+  yearlyPrice        Int
+  maxAccountsPerApp  Int?
+  unlimitedProxies   Boolean        @default(false)
+  active             Boolean        @default(true)
+  subscriptions      Subscription[]
+}
+
+model Subscription {
+  id                  String             @id @default(uuid())
+  userId              String
+  planCode            String
+  status              SubscriptionStatus
+  trialEndsAt         DateTime?
+  currentPeriodStart  DateTime?
+  currentPeriodEnd    DateTime?
+  cancelAtPeriodEnd   Boolean            @default(false)
+  provider            String
+  providerCustomerId  String?
+  createdAt           DateTime           @default(now())
+  updatedAt           DateTime           @updatedAt
+
+  user User @relation(fields: [userId], references: [id])
+  plan Plan @relation(fields: [planCode], references: [code])
+
+  @@index([userId])
+}
+
+model AppDevice {
+  id         String   @id @default(uuid())
+  userId     String
+  deviceId   String
+  appVersion String?
+  os         String?
+  lastSeenAt DateTime?
+  createdAt  DateTime @default(now())
+
+  user User @relation(fields: [userId], references: [id])
+
+  @@unique([userId, deviceId])
+  @@index([userId])
+}
+
+model PaymentEvent {
+  id        String   @id @default(uuid())
+  userId    String?
+  provider  String
+  eventType String
+  eventId   String
+  payload   Json
+  createdAt DateTime @default(now())
+
+  user User? @relation(fields: [userId], references: [id])
+
+  @@unique([provider, eventId])
+  @@index([userId])
+}
