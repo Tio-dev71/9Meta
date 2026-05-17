@@ -15,26 +15,36 @@ enum SubscriptionStatus {
   expired
 }
 
+enum OrderPaymentStatus {
+  pending
+  paid
+  failed
+  expired
+}
+
 model User {
-  id            String         @id @default(uuid())
-  email         String         @unique
+  id            String              @id @default(uuid())
+  email         String              @unique
   passwordHash  String
-  createdAt     DateTime       @default(now())
-  updatedAt     DateTime       @updatedAt
+  name          String?
+  createdAt     DateTime            @default(now())
+  updatedAt     DateTime            @updatedAt
   subscriptions Subscription[]
   devices       AppDevice[]
   payments      PaymentEvent[]
+  orders        SubscriptionOrder[]
 }
 
 model Plan {
-  code               String         @id
+  code               String              @id
   name               String
   monthlyPrice       Int
   yearlyPrice        Int
   maxAccountsPerApp  Int?
-  unlimitedProxies   Boolean        @default(false)
-  active             Boolean        @default(true)
+  unlimitedProxies   Boolean             @default(false)
+  active             Boolean             @default(true)
   subscriptions      Subscription[]
+  orders             SubscriptionOrder[]
 }
 
 model Subscription {
@@ -42,6 +52,7 @@ model Subscription {
   userId              String
   planCode            String
   status              SubscriptionStatus
+  cycle               String             @default("monthly")
   trialEndsAt         DateTime?
   currentPeriodStart  DateTime?
   currentPeriodEnd    DateTime?
@@ -55,6 +66,28 @@ model Subscription {
   plan Plan @relation(fields: [planCode], references: [code])
 
   @@index([userId])
+}
+
+model SubscriptionOrder {
+  id            String             @id @default(uuid())
+  code          String             @unique
+  userId        String
+  planCode      String
+  cycle         String
+  amount        Int
+  status        OrderPaymentStatus @default(pending)
+  sepayTxnId    String?
+  paidAt        DateTime?
+  expiresAt     DateTime
+  createdAt     DateTime           @default(now())
+  updatedAt     DateTime           @updatedAt
+
+  user User @relation(fields: [userId], references: [id])
+  plan Plan @relation(fields: [planCode], references: [code])
+
+  @@index([userId])
+  @@index([code])
+  @@index([status])
 }
 
 model AppDevice {
