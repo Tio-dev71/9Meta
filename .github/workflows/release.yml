@@ -18,7 +18,7 @@ jobs:
         include:
           - os: macos-latest
             artifact_name: mac-build
-            command: npm run build:mac
+            command: npm run build:mac -- --publish never
             patterns: |
               dist/*.dmg
               dist/*.zip
@@ -26,7 +26,7 @@ jobs:
               dist/latest-mac.yml
           - os: windows-latest
             artifact_name: win-build
-            command: npm run build
+            command: npm run build -- --publish never
             patterns: |
               dist/*.exe
               dist/*.blockmap
