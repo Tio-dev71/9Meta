@@ -508,6 +508,30 @@
         id="lock-submit">Mở khóa</button>
     </div>
   </div>
+  <!-- Lớp phủ đăng nhập -->
+  <div id="auth-overlay" class="overlay">
+    <div class="modal-box">
+      <h2 style="margin-top:0; text-align:center;">🔑 Đăng nhập 9Meta</h2>
+      <p class="download-meta" style="text-align:center;">Vui lòng đăng nhập tài khoản đã mua gói để sử dụng.</p>
+      <input type="email" id="auth-email" class="modal-input" placeholder="Email" />
+      <input type="password" id="auth-password" class="modal-input" placeholder="Mật khẩu" />
+      <button class="modal-btn save" id="auth-submit" style="width:100%; margin:0; margin-top:10px;">Đăng nhập</button>
+      <p id="auth-error" style="color:#ff453a; font-size:13px; text-align:center; display:none; margin-top:12px;"></p>
+    </div>
+  </div>
+
+  <!-- Lớp phủ hết hạn bản quyền -->
+  <div id="expired-overlay" class="overlay">
+    <div class="modal-box" style="text-align:center;">
+      <h2 style="margin-top:0; color:#ff453a;">⚠️ Hết hạn bản quyền</h2>
+      <p id="expired-message" class="download-meta" style="font-size:14px;">Gói đăng ký của bạn đã hết hạn. Vui lòng thanh toán gia hạn để tiếp tục sử dụng.</p>
+      <div style="display:flex; justify-content:center; gap:10px; margin-top:20px;">
+        <button class="modal-btn cancel" id="expired-logout">Đăng xuất</button>
+        <button class="modal-btn save" id="expired-upgrade" onclick="require('electron').shell.openExternal('https://tiodev.io.vn/pricing')">Gia hạn ngay</button>
+      </div>
+    </div>
+  </div>
+
   <script src="renderer.js"></script>
 </body>
 

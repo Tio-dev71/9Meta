@@ -313,3 +313,121 @@ renderSidebar();
 switchProfile(activeProfileId);
 ipcRenderer.send('renderer-ready');
 if (settings.lockOnStartup) showLockOverlay(!hasLockPassword);
+
+// ==========================================
+// LICENSE & AUTHENTICATION (9Meta API)
+// ==========================================
+const API_BASE_URL = localStorage.getItem('API_URL') || 'https://api.tiodev.io.vn/v1';
+let accessToken = localStorage.getItem('access_token') || null;
+
+const authOverlay = document.getElementById('auth-overlay');
+const expiredOverlay = document.getElementById('expired-overlay');
+const authSubmit = document.getElementById('auth-submit');
+const authError = document.getElementById('auth-error');
+
+function showAuth() {
+  ipcRenderer.send('set-browserview-visibility', false);
+  authOverlay.style.display = 'flex';
+  expiredOverlay.style.display = 'none';
+}
+
+function showExpired(message, upgradeUrl) {
+  ipcRenderer.send('set-browserview-visibility', false);
+  expiredOverlay.style.display = 'flex';
+  authOverlay.style.display = 'none';
+  if (message) document.getElementById('expired-message').innerText = message;
+  if (upgradeUrl) {
+    const btn = document.getElementById('expired-upgrade');
+    btn.onclick = () => require('electron').shell.openExternal(upgradeUrl);
+  }
+}
+
+function unlockAppFromAuth() {
+  authOverlay.style.display = 'none';
+  expiredOverlay.style.display = 'none';
+  ipcRenderer.send('set-browserview-visibility', true);
+  if (activeProfileId) switchProfile(activeProfileId);
+}
+
+authSubmit.onclick = async () => {
+  const email = document.getElementById('auth-email').value.trim();
+  const password = document.getElementById('auth-password').value;
+  if (!email || !password) {
+    authError.innerText = 'Vui lòng nhập đầy đủ thông tin.';
+    authError.style.display = 'block';
+    return;
+  }
+  
+  authSubmit.innerText = 'Đang đăng nhập...';
+  authSubmit.disabled = true;
+  authError.style.display = 'none';
+
+  try {
+    const res = await fetch(`${API_BASE_URL}/auth/login`, {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ email, password, appVersion: '1.5.0', os: process.platform })
+    });
+    const data = await res.json();
+    
+    if (!res.ok) throw new Error(data.message || 'Đăng nhập thất bại');
+    
+    accessToken = data.accessToken;
+    localStorage.setItem('access_token', accessToken);
+    checkSubscription();
+  } catch (err) {
+    authError.innerText = err.message;
+    authError.style.display = 'block';
+  } finally {
+    authSubmit.innerText = 'Đăng nhập';
+    authSubmit.disabled = false;
+  }
+};
+
+document.getElementById('expired-logout').onclick = () => {
+  localStorage.removeItem('access_token');
+  accessToken = null;
+  expiredOverlay.style.display = 'none';
+  showAuth();
+};
+
+async function checkSubscription() {
+  if (!accessToken) return showAuth();
+  
+  try {
+    const res = await fetch(`${API_BASE_URL}/me/subscription`, {
+      headers: { 'Authorization': `Bearer ${accessToken}` }
+    });
+    
+    if (res.status === 401 || res.status === 403) {
+      localStorage.removeItem('access_token');
+      accessToken = null;
+      return showAuth();
+    }
+    
+    const data = await res.json();
+    
+    if (data.isActive === false) {
+      showExpired(
+        'Gói đăng ký của bạn đã hết hạn. Vui lòng thanh toán gia hạn để tiếp tục sử dụng.', 
+        data.upgradeUrl || 'https://tiodev.io.vn/pricing'
+      );
+    } else {
+      // Đang active, mở khóa app
+      unlockAppFromAuth();
+    }
+  } catch (err) {
+    console.error('Lỗi kiểm tra bản quyền:', err);
+    // Nếu lỗi mạng, có thể du di cho dùng offline tạm, hoặc chặn cứng. Ở đây tạm cho qua nếu lỗi mạng để khỏi phiền người dùng.
+    unlockAppFromAuth(); 
+  }
+}
+
+// Khởi chạy kiểm tra ngay khi mở app
+if (!settings.lockOnStartup) {
+  checkSubscription();
+}
+// Kiểm tra định kỳ 15 phút một lần
+setInterval(() => {
+  if (accessToken && !appLocked) checkSubscription();
+}, 15 * 60 * 1000);
