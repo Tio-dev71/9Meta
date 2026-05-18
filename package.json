@@ -1,7 +1,7 @@
 {
   "name": "9meta",
-  "version": "1.5.1",
-  "description": "9Meta - Quản lý đa tài khoản Zalo, Messenger, Fanpage, Telegram, WhatsApp",
+  "version": "1.5.2",
+  "description": "9Meta - Quản lý đa tài khoản Zalo, Messenger, Fanpage, Telegram, WhatsApp...",
   "main": "main.js",
   "scripts": {
     "start": "electron .",
