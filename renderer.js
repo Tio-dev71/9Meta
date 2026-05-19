@@ -304,6 +304,28 @@ document.getElementById('lock-submit').onclick = () => {
     ipcRenderer.send('unlock-app', password);
   }
 };
+
+document.addEventListener('keydown', (e) => {
+  // Ctrl+L (Win/Linux) or Cmd+L (Mac) to lock app
+  if ((e.ctrlKey || e.metaKey) && e.key.toLowerCase() === 'l') {
+    e.preventDefault();
+    ipcRenderer.send('lock-app');
+  }
+  
+  // Escape to cancel lock setup
+  if (e.key === 'Escape' && appLocked && !hasLockPassword) {
+    e.preventDefault();
+    hideLockOverlay();
+  }
+});
+
+// Enter to submit lock password
+document.getElementById('lock-password').addEventListener('keydown', (e) => {
+  if (e.key === 'Enter') document.getElementById('lock-submit').click();
+});
+document.getElementById('lock-password-confirm').addEventListener('keydown', (e) => {
+  if (e.key === 'Enter') document.getElementById('lock-submit').click();
+});
 ipcRenderer.on('lock-state', (_, state) => {
   hasLockPassword = !!state.hasPassword;
   if (state.zadarkShield !== undefined) document.getElementById('btn-shield').classList.toggle('active', !!state.zadarkShield);
