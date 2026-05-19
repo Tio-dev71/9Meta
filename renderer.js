@@ -367,6 +367,13 @@ function unlockAppFromAuth() {
   if (activeProfileId) switchProfile(activeProfileId);
 }
 
+document.getElementById('auth-email').addEventListener('keydown', (e) => {
+  if (e.key === 'Enter') authSubmit.click();
+});
+document.getElementById('auth-password').addEventListener('keydown', (e) => {
+  if (e.key === 'Enter') authSubmit.click();
+});
+
 authSubmit.onclick = async () => {
   const email = document.getElementById('auth-email').value.trim();
   const password = document.getElementById('auth-password').value;
@@ -384,7 +391,7 @@ authSubmit.onclick = async () => {
     const res = await fetch(`${API_BASE_URL}/auth/login`, {
       method: 'POST',
       headers: { 'Content-Type': 'application/json' },
-      body: JSON.stringify({ email, password, appVersion: '1.5.0', os: process.platform })
+      body: JSON.stringify({ email, password, appVersion: require('./package.json').version, os: process.platform })
     });
     const data = await res.json();
     
