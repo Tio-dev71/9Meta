@@ -154,20 +154,65 @@ function setupAutoUpdater() {
   autoUpdater.on('update-available', (info) => {
     console.log('[AutoUpdater] Update available:', info.version);
     setUpdateState({ status: 'available', progress: 0, info, message: `Có bản cập nhật mới v${info.version}.` });
+    // Native dialog fallback for manual check
+    if (isManualUpdateCheck && mainWindow) {
+      dialog.showMessageBox(mainWindow, {
+        type: 'info',
+        title: 'Cập nhật mới',
+        message: `Có bản cập nhật mới v${info.version}!`,
+        detail: 'Bạn có muốn tải và cài đặt ngay?',
+        buttons: ['Tải xuống', 'Để sau'],
+        defaultId: 0,
+      }).then(({ response }) => {
+        if (response === 0) {
+          autoUpdater.downloadUpdate().catch(err => {
+            dialog.showErrorBox('Lỗi cập nhật', err.message || 'Không thể tải cập nhật.');
+          });
+          setUpdateState({ status: 'downloading', progress: 0, message: 'Đang tải cập nhật...' });
+        }
+      });
+      isManualUpdateCheck = false;
+    }
   });
   autoUpdater.on('update-not-available', (info) => {
     console.log('[AutoUpdater] No update available. Current:', info.version);
     setUpdateState({ status: 'idle', progress: 0, message: 'Bạn đang sử dụng phiên bản mới nhất.' });
+    if (isManualUpdateCheck && mainWindow) {
+      dialog.showMessageBox(mainWindow, {
+        type: 'info',
+        title: 'Cập nhật',
+        message: 'Bạn đang sử dụng phiên bản mới nhất.',
+        detail: `Phiên bản hiện tại: v${app.getVersion()}`,
+        buttons: ['OK'],
+      });
+    }
     isManualUpdateCheck = false;
   });
   autoUpdater.on('download-progress', (p) => setUpdateState({ status: 'downloading', progress: Math.round(p.percent || 0), message: `Đang tải cập nhật... ${Math.round(p.percent || 0)}%` }));
   autoUpdater.on('update-downloaded', () => {
     console.log('[AutoUpdater] Update downloaded, ready to install.');
     setUpdateState({ status: 'downloaded', progress: 100, message: 'Đã tải xong. Sẵn sàng cài đặt và khởi động lại.' });
+    if (mainWindow) {
+      dialog.showMessageBox(mainWindow, {
+        type: 'info',
+        title: 'Cập nhật sẵn sàng',
+        message: 'Đã tải xong bản cập nhật.',
+        detail: 'Khởi động lại ứng dụng để cài đặt?',
+        buttons: ['Khởi động lại', 'Để sau'],
+        defaultId: 0,
+      }).then(({ response }) => {
+        if (response === 0) { isQuitting = true; autoUpdater.quitAndInstall(); }
+      });
+    }
   });
   autoUpdater.on('error', (err) => {
     console.error('[AutoUpdater] Error:', err);
-    setUpdateState({ status: 'error', message: err == null ? 'Lỗi cập nhật không xác định.' : (err.message || err.toString()).split('\n')[0] });
+    const msg = err == null ? 'Lỗi cập nhật không xác định.' : (err.message || err.toString()).split('\n')[0];
+    setUpdateState({ status: 'error', message: msg });
+    if (isManualUpdateCheck && mainWindow) {
+      dialog.showErrorBox('Lỗi cập nhật', msg);
+    }
+    isManualUpdateCheck = false;
   });
   setTimeout(() => autoUpdater.checkForUpdates().catch(() => {}), 5000);
 }
