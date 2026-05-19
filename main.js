@@ -146,12 +146,29 @@ function toggleZadarkShield(enable) { settings.zadarkShield = enable; saveSettin
 
 function setupAutoUpdater() {
   autoUpdater.autoDownload = false;
-  autoUpdater.on('checking-for-update', () => setUpdateState({ status: 'checking', progress: 0, message: 'Đang kiểm tra cập nhật...' }));
-  autoUpdater.on('update-available', (info) => setUpdateState({ status: 'available', progress: 0, info, message: `Có bản cập nhật mới v${info.version}.` }));
-  autoUpdater.on('update-not-available', () => { setUpdateState({ status: 'idle', progress: 0, message: 'Bạn đang sử dụng phiên bản mới nhất.' }); isManualUpdateCheck = false; });
+  autoUpdater.logger = require('electron').app.isPackaged ? null : console;
+  autoUpdater.on('checking-for-update', () => {
+    console.log('[AutoUpdater] Checking for update...');
+    setUpdateState({ status: 'checking', progress: 0, message: 'Đang kiểm tra cập nhật...' });
+  });
+  autoUpdater.on('update-available', (info) => {
+    console.log('[AutoUpdater] Update available:', info.version);
+    setUpdateState({ status: 'available', progress: 0, info, message: `Có bản cập nhật mới v${info.version}.` });
+  });
+  autoUpdater.on('update-not-available', (info) => {
+    console.log('[AutoUpdater] No update available. Current:', info.version);
+    setUpdateState({ status: 'idle', progress: 0, message: 'Bạn đang sử dụng phiên bản mới nhất.' });
+    isManualUpdateCheck = false;
+  });
   autoUpdater.on('download-progress', (p) => setUpdateState({ status: 'downloading', progress: Math.round(p.percent || 0), message: `Đang tải cập nhật... ${Math.round(p.percent || 0)}%` }));
-  autoUpdater.on('update-downloaded', () => setUpdateState({ status: 'downloaded', progress: 100, message: 'Đã tải xong. Sẵn sàng cài đặt và khởi động lại.' }));
-  autoUpdater.on('error', (err) => setUpdateState({ status: 'error', message: err == null ? 'Lỗi cập nhật không xác định.' : (err.message || err.toString()).split('\n')[0] }));
+  autoUpdater.on('update-downloaded', () => {
+    console.log('[AutoUpdater] Update downloaded, ready to install.');
+    setUpdateState({ status: 'downloaded', progress: 100, message: 'Đã tải xong. Sẵn sàng cài đặt và khởi động lại.' });
+  });
+  autoUpdater.on('error', (err) => {
+    console.error('[AutoUpdater] Error:', err);
+    setUpdateState({ status: 'error', message: err == null ? 'Lỗi cập nhật không xác định.' : (err.message || err.toString()).split('\n')[0] });
+  });
   setTimeout(() => autoUpdater.checkForUpdates().catch(() => {}), 5000);
 }
 let isManualUpdateCheck = false;
