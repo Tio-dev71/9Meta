@@ -162,11 +162,23 @@ ipcRenderer.on('downloads-list', (_, list) => { downloads = list || []; renderDo
 ipcRenderer.on('download-updated', (_, item) => { downloads = downloads.filter(d => d.id !== item.id).concat(item); renderDownloads(); });
 
 function renderUpdate() {
-  document.getElementById('update-status').innerText = updateState.message || 'Sẵn sàng kiểm tra cập nhật.';
+  const isMacSigError = updateState.status === 'error' && updateState.message && updateState.message.toLowerCase().includes('code signature');
+  
+  if (isMacSigError) {
+    document.getElementById('update-status').innerHTML = 'Hệ điều hành macOS yêu cầu tải bản cập nhật thủ công do giới hạn bảo mật.<br><a href="#" id="mac-manual-download" style="color:#0a84ff;">Tải xuống bản mới nhất tại đây</a>';
+    setTimeout(() => {
+      const btn = document.getElementById('mac-manual-download');
+      if (btn) btn.onclick = (e) => { e.preventDefault(); require('electron').shell.openExternal('https://github.com/Tio-dev71/Deplao-App/releases/latest'); };
+    }, 100);
+  } else {
+    document.getElementById('update-status').innerText = updateState.message || 'Sẵn sàng kiểm tra cập nhật.';
+  }
+  
   document.getElementById('update-progress').style.width = `${updateState.progress || 0}%`;
   document.getElementById('update-download').style.display = updateState.status === 'available' ? 'inline-block' : 'none';
   document.getElementById('update-install').style.display = updateState.status === 'downloaded' ? 'inline-block' : 'none';
 }
+
 document.getElementById('btn-update').onclick = () => {
   ipcRenderer.send('set-browserview-visibility', false);
   document.getElementById('update-overlay').style.display = 'flex';
@@ -180,6 +192,7 @@ document.getElementById('update-close').onclick = () => {
 document.getElementById('update-check').onclick = () => ipcRenderer.send('check-for-updates');
 document.getElementById('update-download').onclick = () => ipcRenderer.send('download-update');
 document.getElementById('update-install').onclick = () => ipcRenderer.send('install-update');
+
 ipcRenderer.on('update-state', (_, state) => {
   updateState = state;
   renderUpdate();
