@@ -167,12 +167,30 @@ function renderUpdate() {
   document.getElementById('update-download').style.display = updateState.status === 'available' ? 'inline-block' : 'none';
   document.getElementById('update-install').style.display = updateState.status === 'downloaded' ? 'inline-block' : 'none';
 }
-document.getElementById('btn-update').onclick = () => ipcRenderer.send('check-for-updates');
-document.getElementById('update-close').onclick = () => document.getElementById('update-overlay').style.display = 'none';
+document.getElementById('btn-update').onclick = () => {
+  ipcRenderer.send('set-browserview-visibility', false);
+  document.getElementById('update-overlay').style.display = 'flex';
+  ipcRenderer.send('check-for-updates');
+  ipcRenderer.send('get-update-state');
+};
+document.getElementById('update-close').onclick = () => {
+  document.getElementById('update-overlay').style.display = 'none';
+  ipcRenderer.send('set-browserview-visibility', true);
+};
 document.getElementById('update-check').onclick = () => ipcRenderer.send('check-for-updates');
 document.getElementById('update-download').onclick = () => ipcRenderer.send('download-update');
 document.getElementById('update-install').onclick = () => ipcRenderer.send('install-update');
-ipcRenderer.on('update-state', (_, state) => { updateState = state; renderUpdate(); });
+ipcRenderer.on('update-state', (_, state) => {
+  updateState = state;
+  renderUpdate();
+  // Auto-show overlay when update available/downloaded (e.g. triggered from tray menu)
+  if (state.status === 'available' || state.status === 'downloaded') {
+    if (document.getElementById('update-overlay').style.display !== 'flex') {
+      ipcRenderer.send('set-browserview-visibility', false);
+      document.getElementById('update-overlay').style.display = 'flex';
+    }
+  }
+});
 
 let isDarkMode = true;
 const toggleDarkMode = () => {
