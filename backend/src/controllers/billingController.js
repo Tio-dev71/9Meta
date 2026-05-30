@@ -32,7 +32,25 @@ async function createOrder(req, res) {
     return res.status(404).json({ message: 'Plan not found' });
   }
 
-  const amount = cycle === 'yearly' ? plan.yearlyPrice : plan.monthlyPrice;
+  let amount = cycle === 'yearly' ? plan.yearlyPrice : plan.monthlyPrice;
+
+  if (req.body.affiliateCode) {
+    try {
+      const webUrl = process.env.APP_WEB_URL || 'https://tiodev.io.vn';
+      const fetchRes = await fetch(`${webUrl}/api/affiliates/validate`, {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ code: req.body.affiliateCode.trim().toUpperCase() }),
+      });
+      const data = await fetchRes.json();
+      if (data.valid && data.discountPercent) {
+        const discountAmount = Math.round((amount * data.discountPercent) / 100);
+        amount = amount - discountAmount;
+      }
+    } catch (err) {
+      console.error('[Billing] Failed to validate affiliate code:', err.message);
+    }
+  }
 
   // Check for existing pending order (avoid duplicates)
   const existingPending = await prisma.subscriptionOrder.findFirst({
