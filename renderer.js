@@ -102,6 +102,48 @@ function randomBetween(min, max) {
   const high = Number(max) || low;
   return Math.floor(low + Math.random() * Math.max(high - low, 1));
 }
+let toolsLauncherOpen = false;
+const TOOL_ACTION_HANDLERS = {
+  dashboard: () => { renderDashboard(); openOverlay('dashboard-overlay'); },
+  workspaces: () => { renderWorkspaces(); openOverlay('workspace-overlay'); },
+  crm: () => { renderCRMCurrentChat(); openOverlay('crm-overlay'); },
+  campaigns: () => { renderCampaigns(); openOverlay('campaign-overlay'); },
+  ai: () => { fillAISettings(); openOverlay('ai-overlay'); },
+  'quick-replies': () => { renderQuickReplies(); openOverlay('quick-replies-overlay'); },
+  update: () => { openOverlay('update-overlay'); ipcRenderer.send('check-for-updates'); ipcRenderer.send('get-update-state'); },
+  lock: () => ipcRenderer.send('lock-app'),
+  shield: () => ipcRenderer.send('toggle-zadark-shield'),
+  'dark-mode': () => {
+    isDarkMode = !isDarkMode;
+    document.body.className = isDarkMode ? 'dark-mode' : 'light-mode';
+    document.getElementById('icon-sun').style.display = isDarkMode ? 'none' : 'block';
+    document.getElementById('icon-moon').style.display = isDarkMode ? 'block' : 'none';
+    ipcRenderer.send('set-theme', isDarkMode);
+  },
+  'zoom-in': () => ipcRenderer.send('zoom-in'),
+  'zoom-out': () => ipcRenderer.send('zoom-out'),
+  fullscreen: () => ipcRenderer.send('toggle-fullscreen'),
+  pin: () => {
+    document.getElementById('btn-pin').classList.toggle('active');
+    ipcRenderer.send('toggle-always-on-top');
+  },
+  reload: () => ipcRenderer.send('reload-page'),
+};
+function setLauncherOpen(open) {
+  toolsLauncherOpen = !!open;
+  const overlay = document.getElementById('tools-overlay');
+  const trigger = document.getElementById('btn-tools-launcher');
+  if (!overlay || !trigger) return;
+  overlay.classList.toggle('open', toolsLauncherOpen);
+  overlay.setAttribute('aria-hidden', toolsLauncherOpen ? 'false' : 'true');
+  trigger.classList.toggle('active', toolsLauncherOpen);
+}
+function runToolAction(action, autoClose = true) {
+  const handler = TOOL_ACTION_HANDLERS[action];
+  if (!handler) return;
+  if (autoClose) setLauncherOpen(false);
+  handler();
+}
 function wait(ms) { return new Promise((resolve) => setTimeout(resolve, ms)); }
 
 function migrateLegacyProfiles() {
@@ -619,13 +661,14 @@ document.getElementById('modal-save').onclick = () => {
   if (activeProfileId) switchProfile(activeProfileId);
 };
 
-document.getElementById('btn-dashboard').onclick = () => { renderDashboard(); openOverlay('dashboard-overlay'); };
-document.getElementById('btn-workspaces').onclick = () => { renderWorkspaces(); openOverlay('workspace-overlay'); };
-document.getElementById('btn-crm').onclick = () => { renderCRMCurrentChat(); openOverlay('crm-overlay'); };
-document.getElementById('btn-campaigns').onclick = () => { renderCampaigns(); openOverlay('campaign-overlay'); };
-document.getElementById('btn-ai').onclick = () => { fillAISettings(); openOverlay('ai-overlay'); };
-document.getElementById('btn-quick-replies').onclick = () => { renderQuickReplies(); openOverlay('quick-replies-overlay'); };
-document.getElementById('btn-update').onclick = () => { openOverlay('update-overlay'); ipcRenderer.send('check-for-updates'); ipcRenderer.send('get-update-state'); };
+document.getElementById('btn-tools-launcher').onclick = () => setLauncherOpen(!toolsLauncherOpen);
+document.getElementById('tools-close').onclick = () => setLauncherOpen(false);
+document.querySelectorAll('[data-tools-close="true"]').forEach((el) => {
+  el.onclick = () => setLauncherOpen(false);
+});
+document.querySelectorAll('[data-tool-action]').forEach((el) => {
+  el.onclick = () => runToolAction(el.dataset.toolAction, true);
+});
 document.getElementById('workspace-create-btn').onclick = () => {
   const input = document.getElementById('workspace-name-input');
   const name = input.value.trim() || 'Workspace mới';
@@ -677,20 +720,6 @@ document.getElementById('ai-save-quick-reply').onclick = () => {
   document.getElementById('ai-status').innerText = 'Đã lưu vào quick replies';
 };
 
-document.getElementById('btn-dark-mode').onclick = () => {
-  isDarkMode = !isDarkMode;
-  document.body.className = isDarkMode ? 'dark-mode' : 'light-mode';
-  document.getElementById('icon-sun').style.display = isDarkMode ? 'none' : 'block';
-  document.getElementById('icon-moon').style.display = isDarkMode ? 'block' : 'none';
-  ipcRenderer.send('set-theme', isDarkMode);
-};
-document.getElementById('btn-zoom-in').onclick = () => ipcRenderer.send('zoom-in');
-document.getElementById('btn-zoom-out').onclick = () => ipcRenderer.send('zoom-out');
-document.getElementById('btn-fs').onclick = () => ipcRenderer.send('toggle-fullscreen');
-document.getElementById('btn-pin').onclick = () => { document.getElementById('btn-pin').classList.toggle('active'); ipcRenderer.send('toggle-always-on-top'); };
-document.getElementById('btn-reload').onclick = () => ipcRenderer.send('reload-page');
-document.getElementById('btn-shield').onclick = () => ipcRenderer.send('toggle-zadark-shield');
-document.getElementById('btn-lock').onclick = () => ipcRenderer.send('lock-app');
 document.getElementById('update-check').onclick = () => ipcRenderer.send('check-for-updates');
 document.getElementById('update-download').onclick = () => ipcRenderer.send('download-update');
 document.getElementById('update-install').onclick = () => ipcRenderer.send('install-update');
@@ -720,6 +749,11 @@ document.getElementById('lock-password').addEventListener('keydown', (e) => { if
 document.getElementById('lock-password-confirm').addEventListener('keydown', (e) => { if (e.key === 'Enter') document.getElementById('lock-submit').click(); });
 
 document.addEventListener('keydown', (e) => {
+  if (e.key === 'Escape' && toolsLauncherOpen) {
+    e.preventDefault();
+    setLauncherOpen(false);
+    return;
+  }
   if ((e.ctrlKey || e.metaKey) && e.key.toLowerCase() === 'l') {
     e.preventDefault();
     ipcRenderer.send('lock-app');
@@ -762,10 +796,13 @@ const settings = ipcRenderer.sendSync('get-settings');
 isDarkMode = settings.isDarkMode;
 hasLockPassword = !!settings.hasLockPassword;
 document.body.className = isDarkMode ? 'dark-mode' : 'light-mode';
-document.getElementById('icon-sun').style.display = isDarkMode ? 'none' : 'block';
-document.getElementById('icon-moon').style.display = isDarkMode ? 'block' : 'none';
+const sunIcon = document.getElementById('icon-sun');
+const moonIcon = document.getElementById('icon-moon');
+if (sunIcon) sunIcon.style.display = isDarkMode ? 'none' : 'block';
+if (moonIcon) moonIcon.style.display = isDarkMode ? 'block' : 'none';
 document.getElementById('btn-pin').classList.toggle('active', !!settings.alwaysOnTop);
-document.getElementById('btn-shield').classList.toggle('active', !!settings.zadarkShield);
+const shieldButton = document.getElementById('btn-shield');
+if (shieldButton) shieldButton.classList.toggle('active', !!settings.zadarkShield);
 
 const API_BASE_URL = localStorage.getItem('API_URL') || 'https://api.tiodev.io.vn/v1';
 let accessToken = localStorage.getItem('access_token') || null;

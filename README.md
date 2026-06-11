@@ -307,22 +307,6 @@ Lần đầu khóa app, bạn sẽ được yêu cầu tạo mật khẩu.
 
 ---
 
-## Dữ liệu được lưu ở đâu?
-
-Dữ liệu workspace được lưu trong thư mục `userData` của Electron, theo cấu trúc tương tự:
-
-```text
-userData/
-  workspaces/
-    index.json
-    <workspace-id>/
-      data.json
-```
-
-Mỗi workspace có file `data.json` riêng để tách dữ liệu.
-
----
-
 ## Lưu ý an toàn khi dùng campaign
 
 - Không nên gửi quá nhanh.
@@ -342,17 +326,6 @@ Mỗi workspace có file `data.json` riêng để tách dữ liệu.
 - JavaScript
 - electron-builder
 - electron-updater
-
----
-
-## Scripts
-
-| Lệnh | Chức năng |
-| --- | --- |
-| `npm start` | Chạy app ở chế độ dev |
-| `npm run build` | Build Windows installer |
-| `npm run build:mac` | Build macOS DMG/ZIP |
-| `npm run build:portable` | Build Windows portable |
 
 ---
 

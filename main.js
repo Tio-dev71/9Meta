@@ -332,7 +332,22 @@ function setupWebContents(contents, profileId) {
     if (menu.items.length > 0) menu.popup({ window: mainWindow });
   });
   contents.on('did-finish-load', () => {
-    try { contents.insertCSS(fs.readFileSync(path.join(__dirname, 'custom_style.css'), 'utf8')); } catch (e) { }
+    try {
+      const currentUrl = contents.getURL();
+      const host = new URL(currentUrl).hostname || '';
+      const platformClass = host.includes('telegram.org')
+        ? 'platform-telegram'
+        : host.includes('messenger.com') || host.includes('facebook.com')
+          ? 'platform-meta'
+          : host.includes('zalo.me')
+            ? 'platform-zalo'
+            : host.includes('whatsapp.com')
+              ? 'platform-whatsapp'
+              : 'platform-generic';
+      contents.insertCSS(`html, body { --nine-meta-platform: ${platformClass}; } html { color-scheme: dark; } body { min-height: 100vh; } html.${platformClass}, body.${platformClass} {}`);
+      contents.executeJavaScript(`document.documentElement.classList.add('${platformClass}'); document.body && document.body.classList.add('${platformClass}');`, true).catch(() => {});
+      contents.insertCSS(fs.readFileSync(path.join(__dirname, 'custom_style.css'), 'utf8'));
+    } catch (e) { }
   });
   if (app.isPackaged) {
     contents.on('before-input-event', (event, input) => { if (input.key === 'F12' || (input.control && input.shift && input.key === 'I')) event.preventDefault(); });

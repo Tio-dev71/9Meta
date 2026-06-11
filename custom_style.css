@@ -1,12 +1,19 @@
-/* CHÌA KHÓA DUY NHẤT: Override biến CSS Facebook */
+/* 9Meta injected platform polish */
 :root,
 .__fb-light-mode,
 .__fb-dark-mode {
+  --nine-meta-accent: #7c5cff;
+  --nine-meta-accent-2: #6ea8ff;
+}
+
+/* Messenger/Facebook: keep the old top chrome cleanup scoped to Meta only. */
+html.platform-meta,
+html.platform-meta .__fb-light-mode,
+html.platform-meta .__fb-dark-mode {
   --header-height: 0px !important;
 }
 
-/* ẨN banner + progressbar */
-div[role="banner"] {
+html.platform-meta div[role="banner"] {
   display: none !important;
   height: 0 !important;
   min-height: 0 !important;
@@ -15,19 +22,123 @@ div[role="banner"] {
   flex: 0 !important;
 }
 
-div[role="progressbar"],
-div[role="progressbar"].always-enable-animations {
+html.platform-meta div[role="progressbar"],
+html.platform-meta div[role="progressbar"].always-enable-animations {
   display: none !important;
   height: 0 !important;
   position: absolute !important;
   top: -9999px !important;
 }
 
-/* ẨN footer */
-footer { display: none !important; }
+html.platform-meta footer { display: none !important; }
+
+/* Telegram Web: softer premium dark surface and less broken-looking spacing. */
+html.platform-telegram,
+html.platform-telegram body {
+  background:
+    radial-gradient(circle at top left, rgba(110, 168, 255, .14), transparent 28%),
+    radial-gradient(circle at top right, rgba(124, 92, 255, .16), transparent 26%),
+    #0b1220 !important;
+}
+
+html.platform-telegram body,
+html.platform-telegram #root,
+html.platform-telegram .whole,
+html.platform-telegram .App,
+html.platform-telegram #MiddleColumn,
+html.platform-telegram #LeftColumn {
+  min-height: 100vh !important;
+}
+
+html.platform-telegram #LeftColumn,
+html.platform-telegram .LeftColumn,
+html.platform-telegram .left-column,
+html.platform-telegram .chat-list,
+html.platform-telegram .Transition.slide {
+  background: rgba(10, 16, 29, .86) !important;
+  border-color: rgba(255, 255, 255, .08) !important;
+}
+
+html.platform-telegram .chat-list,
+html.platform-telegram .ListItem,
+html.platform-telegram .ChatInfo {
+  color: rgba(238, 244, 255, .94) !important;
+}
+
+html.platform-telegram .ListItem-button,
+html.platform-telegram .chat-item-clickable,
+html.platform-telegram .ChatInfo,
+html.platform-telegram .Tab,
+html.platform-telegram .btn-icon {
+  border-radius: 16px !important;
+}
+
+html.platform-telegram .ListItem-button:hover,
+html.platform-telegram .ListItem-button.active,
+html.platform-telegram .chat-item-clickable:hover,
+html.platform-telegram .chat-item-clickable.active {
+  background: linear-gradient(135deg, rgba(110, 168, 255, .16), rgba(124, 92, 255, .14)) !important;
+}
+
+html.platform-telegram #MiddleColumn,
+html.platform-telegram .middle-column,
+html.platform-telegram .MessageList,
+html.platform-telegram .messages-container {
+  background:
+    radial-gradient(circle at 16% 10%, rgba(110, 168, 255, .1), transparent 22%),
+    radial-gradient(circle at 82% 18%, rgba(124, 92, 255, .1), transparent 24%),
+    rgba(7, 10, 18, .92) !important;
+}
+
+html.platform-telegram .middle-header,
+html.platform-telegram .MiddleHeader,
+html.platform-telegram .chat-info-wrapper,
+html.platform-telegram .Header {
+  background: rgba(12, 18, 32, .78) !important;
+  border-bottom: 1px solid rgba(255, 255, 255, .08) !important;
+  backdrop-filter: blur(18px) !important;
+  -webkit-backdrop-filter: blur(18px) !important;
+}
+
+html.platform-telegram .message-content,
+html.platform-telegram .Message .content,
+html.platform-telegram .text-content,
+html.platform-telegram .bubble {
+  border-radius: 18px !important;
+  box-shadow: 0 10px 24px rgba(0, 0, 0, .16) !important;
+}
+
+html.platform-telegram .Message.own .message-content,
+html.platform-telegram .Message.own .content,
+html.platform-telegram .Message.own .bubble {
+  background: linear-gradient(135deg, rgba(124, 92, 255, .92), rgba(110, 168, 255, .82)) !important;
+}
+
+html.platform-telegram .input-scroller,
+html.platform-telegram .message-input-wrapper,
+html.platform-telegram .MessageInput,
+html.platform-telegram .Composer,
+html.platform-telegram .input-message-container {
+  background: rgba(12, 18, 32, .82) !important;
+  border: 1px solid rgba(255, 255, 255, .08) !important;
+  border-radius: 22px !important;
+  box-shadow: 0 18px 42px rgba(0, 0, 0, .24) !important;
+}
+
+html.platform-telegram input,
+html.platform-telegram textarea,
+html.platform-telegram [contenteditable="true"] {
+  color: #eef4ff !important;
+}
+
+html.platform-telegram .placeholder,
+html.platform-telegram input::placeholder,
+html.platform-telegram textarea::placeholder {
+  color: rgba(210, 222, 245, .55) !important;
+}
 
 /* Scrollbar tinh tế */
-::-webkit-scrollbar { width: 6px; }
+::-webkit-scrollbar { width: 6px; height: 6px; }
 ::-webkit-scrollbar-track { background: transparent; }
-::-webkit-scrollbar-thumb { background: rgba(128,128,128,0.2); border-radius: 10px; }
-::-webkit-scrollbar-thumb:hover { background: rgba(128,128,128,0.35); }
+::-webkit-scrollbar-thumb { background: rgba(128,128,128,0.22); border-radius: 10px; }
+::-webkit-scrollbar-thumb:hover { background: rgba(128,128,128,0.38); }

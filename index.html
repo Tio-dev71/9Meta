@@ -149,10 +149,10 @@
     }
     .sidebar-spacer { flex: 1; }
     .tool-btn {
-      width: 42px;
-      height: 42px;
+      width: 44px;
+      height: 44px;
       margin-bottom: 6px;
-      border-radius: 16px;
+      border-radius: 17px;
       background: transparent;
       color: var(--muted);
       display: flex;
@@ -164,16 +164,124 @@
       background: rgba(255,255,255,.08);
       box-shadow: inset 0 0 0 1px rgba(255,255,255,.08);
     }
+    .tool-btn.launcher {
+      margin-bottom: 8px;
+      color: #fff;
+      background:
+        radial-gradient(circle at 28% 18%, rgba(255,255,255,.22), transparent 34%),
+        linear-gradient(135deg, rgba(110,168,255,.95), rgba(124,92,255,.92));
+      box-shadow: 0 16px 34px rgba(99, 116, 255, .36);
+    }
+    .tool-btn.launcher.active {
+      transform: translateY(-2px) scale(1.04);
+      box-shadow: 0 18px 42px rgba(99, 116, 255, .5), 0 0 0 1px rgba(255,255,255,.14) inset;
+    }
     body.light-mode .tool-btn:hover, body.light-mode .tool-btn.active {
       color: #0f2c58;
       background: rgba(16, 30, 60, .06);
     }
+    body.light-mode .tool-btn.launcher, body.light-mode .tool-btn.launcher.active { color: #fff; }
     .tool-btn svg { width: 19px; height: 19px; stroke: currentColor; fill: none; stroke-width: 2.1; stroke-linecap: round; stroke-linejoin: round; }
     #btn-add-profile {
       margin-top: 10px;
       border: 1.5px dashed rgba(255,255,255,.2);
       background: rgba(255,255,255,.04);
     }
+
+    #tools-overlay {
+      display: none;
+      position: fixed;
+      inset: 0;
+      z-index: 80;
+      pointer-events: none;
+    }
+    #tools-overlay.open { display: block; }
+    .tools-scrim {
+      position: absolute;
+      inset: 0;
+      background: linear-gradient(90deg, rgba(3,8,17,.36), rgba(3,8,17,.04));
+      pointer-events: auto;
+      animation: fadeIn .16s ease;
+    }
+    .tools-panel {
+      position: absolute;
+      left: calc(var(--sidebar) + 16px);
+      bottom: 18px;
+      width: min(430px, calc(100vw - var(--sidebar) - 34px));
+      padding: 18px;
+      border-radius: 28px;
+      pointer-events: auto;
+      background:
+        radial-gradient(circle at 18% 0%, rgba(110,168,255,.22), transparent 32%),
+        radial-gradient(circle at 100% 20%, rgba(124,92,255,.18), transparent 34%),
+        linear-gradient(180deg, rgba(18,27,47,.96), rgba(8,14,27,.94));
+      border: 1px solid rgba(255,255,255,.12);
+      box-shadow: 0 28px 90px rgba(0,0,0,.48);
+      backdrop-filter: blur(24px);
+      -webkit-backdrop-filter: blur(24px);
+      animation: launcherPop .18s cubic-bezier(.2,.9,.2,1);
+    }
+    body.light-mode .tools-panel {
+      background:
+        radial-gradient(circle at 18% 0%, rgba(110,168,255,.2), transparent 34%),
+        linear-gradient(180deg, rgba(255,255,255,.96), rgba(244,248,255,.94));
+      border-color: rgba(20, 38, 70, .08);
+    }
+    @keyframes launcherPop { from { opacity: 0; transform: translateY(12px) scale(.97); } to { opacity: 1; transform: translateY(0) scale(1); } }
+    .tools-head { display: flex; justify-content: space-between; align-items: flex-start; gap: 12px; margin-bottom: 14px; }
+    .tools-title { margin: 0; font-size: 18px; letter-spacing: .2px; }
+    .tools-subtitle { margin: 4px 0 0; color: var(--muted); font-size: 12px; }
+    .tools-grid {
+      display: grid;
+      grid-template-columns: repeat(3, minmax(0, 1fr));
+      gap: 10px;
+    }
+    .tool-tile {
+      min-height: 86px;
+      border: 1px solid rgba(255,255,255,.1);
+      border-radius: 20px;
+      padding: 12px 10px;
+      background: linear-gradient(180deg, rgba(255,255,255,.08), rgba(255,255,255,.035));
+      color: inherit;
+      cursor: pointer;
+      text-align: left;
+      font: inherit;
+      transition: transform .18s ease, background .18s ease, border-color .18s ease, box-shadow .18s ease;
+    }
+    .tool-tile:hover {
+      transform: translateY(-3px);
+      border-color: rgba(110,168,255,.42);
+      background: linear-gradient(180deg, rgba(110,168,255,.18), rgba(124,92,255,.1));
+      box-shadow: 0 16px 32px rgba(0,0,0,.24);
+    }
+    body.light-mode .tool-tile { background: rgba(12, 30, 60, .045); border-color: rgba(12, 30, 60, .08); }
+    .tool-tile-icon {
+      width: 34px;
+      height: 34px;
+      border-radius: 13px;
+      display: grid;
+      place-items: center;
+      margin-bottom: 10px;
+      background: linear-gradient(135deg, rgba(110,168,255,.28), rgba(124,92,255,.2));
+      color: #9fc6ff;
+    }
+    .tool-tile-icon svg { width: 18px; height: 18px; stroke: currentColor; fill: none; stroke-width: 2.1; stroke-linecap: round; stroke-linejoin: round; }
+    .tool-tile strong { display: block; font-size: 13px; }
+    .tool-tile span { display: block; margin-top: 3px; color: var(--muted); font-size: 11px; line-height: 1.25; }
+    .tools-mini-row { display: grid; grid-template-columns: repeat(6, 1fr); gap: 8px; margin-top: 12px; }
+    .mini-tool {
+      height: 38px;
+      border: 1px solid rgba(255,255,255,.09);
+      border-radius: 14px;
+      background: rgba(255,255,255,.05);
+      color: var(--muted);
+      cursor: pointer;
+      display: grid;
+      place-items: center;
+      transition: transform .18s ease, color .18s ease, background .18s ease;
+    }
+    .mini-tool:hover, .mini-tool.active { color: #fff; transform: translateY(-2px); background: rgba(255,255,255,.1); }
+    .mini-tool svg { width: 17px; height: 17px; stroke: currentColor; fill: none; stroke-width: 2.1; stroke-linecap: round; stroke-linejoin: round; }
 
     .overlay {
       display: none;
@@ -340,6 +448,9 @@
     @media (max-width: 920px) {
       .grid-3, .stats-grid, .grid-2, .form-grid { grid-template-columns: 1fr; }
       .panel-box.wide, .panel-box.mid { width: 100%; }
+      .tools-panel { left: 82px; right: 12px; width: auto; bottom: 12px; }
+      .tools-grid { grid-template-columns: repeat(2, minmax(0, 1fr)); }
+      .tools-mini-row { grid-template-columns: repeat(3, 1fr); }
     }
   </style>
 </head>
@@ -353,21 +464,41 @@
         <svg viewBox="0 0 24 24"><line x1="12" y1="5" x2="12" y2="19"></line><line x1="5" y1="12" x2="19" y2="12"></line></svg>
       </button>
       <div class="sidebar-spacer"></div>
-      <button class="tool-btn" id="btn-dashboard" title="Dashboard"><svg viewBox="0 0 24 24"><path d="M3 13h8V3H3z"></path><path d="M13 21h8v-6h-8z"></path><path d="M13 10h8V3h-8z"></path><path d="M3 21h8v-4H3z"></path></svg></button>
-      <button class="tool-btn" id="btn-workspaces" title="Workspace"><svg viewBox="0 0 24 24"><path d="M3 7l9-4 9 4-9 4-9-4z"></path><path d="M3 12l9 4 9-4"></path><path d="M3 17l9 4 9-4"></path></svg></button>
-      <button class="tool-btn" id="btn-crm" title="CRM"><svg viewBox="0 0 24 24"><path d="M17 21v-2a4 4 0 0 0-4-4H5a4 4 0 0 0-4 4v2"></path><circle cx="9" cy="7" r="4"></circle><path d="M23 21v-2a4 4 0 0 0-3-3.87"></path><path d="M16 3.13a4 4 0 0 1 0 7.75"></path></svg></button>
-      <button class="tool-btn" id="btn-campaigns" title="Campaign"><svg viewBox="0 0 24 24"><path d="M3 11l18-5v12L3 13z"></path><path d="M11 13.5V19a2 2 0 0 1-2 2H7"></path></svg></button>
-      <button class="tool-btn" id="btn-ai" title="AI Rewrite"><svg viewBox="0 0 24 24"><path d="M12 2v4"></path><path d="M12 18v4"></path><path d="M4.93 4.93l2.83 2.83"></path><path d="M16.24 16.24l2.83 2.83"></path><path d="M2 12h4"></path><path d="M18 12h4"></path><path d="M4.93 19.07l2.83-2.83"></path><path d="M16.24 7.76l2.83-2.83"></path><circle cx="12" cy="12" r="3"></circle></svg></button>
-      <button class="tool-btn" id="btn-lock" title="Khóa ứng dụng"><svg viewBox="0 0 24 24"><rect x="3" y="11" width="18" height="11" rx="2"></rect><path d="M7 11V7a5 5 0 0 1 10 0v4"></path></svg></button>
-      <button class="tool-btn" id="btn-shield" title="ZaDark Shield"><svg viewBox="0 0 24 24"><path d="M12 22s8-4 8-10V5l-8-3-8 3v7c0 6 8 10 8 10z"></path></svg></button>
-      <button class="tool-btn" id="btn-dark-mode" title="Chế độ tối/sáng"><svg id="icon-moon" viewBox="0 0 24 24"><path d="M21 12.79A9 9 0 1 1 11.21 3 7 7 0 0 0 21 12.79z"></path></svg><svg id="icon-sun" style="display:none;" viewBox="0 0 24 24"><circle cx="12" cy="12" r="5"></circle><line x1="12" y1="1" x2="12" y2="3"></line><line x1="12" y1="21" x2="12" y2="23"></line><line x1="4.22" y1="4.22" x2="5.64" y2="5.64"></line><line x1="18.36" y1="18.36" x2="19.78" y2="19.78"></line><line x1="1" y1="12" x2="3" y2="12"></line><line x1="21" y1="12" x2="23" y2="12"></line></svg></button>
-      <button class="tool-btn" id="btn-zoom-in" title="Phóng to"><svg viewBox="0 0 24 24"><circle cx="11" cy="11" r="8"></circle><line x1="21" y1="21" x2="16.65" y2="16.65"></line><line x1="11" y1="8" x2="11" y2="14"></line><line x1="8" y1="11" x2="14" y2="11"></line></svg></button>
-      <button class="tool-btn" id="btn-zoom-out" title="Thu nhỏ"><svg viewBox="0 0 24 24"><circle cx="11" cy="11" r="8"></circle><line x1="21" y1="21" x2="16.65" y2="16.65"></line><line x1="8" y1="11" x2="14" y2="11"></line></svg></button>
-      <button class="tool-btn" id="btn-fs" title="Toàn màn hình"><svg viewBox="0 0 24 24"><polyline points="15 3 21 3 21 9"></polyline><polyline points="9 21 3 21 3 15"></polyline><line x1="21" y1="3" x2="14" y2="10"></line><line x1="3" y1="21" x2="10" y2="14"></line></svg></button>
-      <button class="tool-btn" id="btn-pin" title="Ghim cửa sổ"><svg viewBox="0 0 24 24"><path d="M12 17v5"></path><path d="M9 10.76a2 2 0 0 1-1.11 1.79l-1.78.9A2 2 0 0 0 5 15.24V17h14v-1.76a2 2 0 0 0-1.11-1.79l-1.78-.9A2 2 0 0 1 15 10.76V6a1 1 0 0 1 1-1h.5a.5.5 0 0 0 .5-.5v-1a.5.5 0 0 0-.5-.5h-9a.5.5 0 0 0-.5.5v1a.5.5 0 0 0 .5.5H8a1 1 0 0 1 1 1z"></path></svg></button>
-      <button class="tool-btn" id="btn-reload" title="Tải lại trang"><svg viewBox="0 0 24 24"><polyline points="23 4 23 10 17 10"></polyline><path d="M20.49 15a9 9 0 1 1-2.12-9.36L23 10"></path></svg></button>
-      <button class="tool-btn" id="btn-quick-replies" title="Tin nhắn mẫu"><svg viewBox="0 0 24 24"><path d="M21 15a2 2 0 0 1-2 2H7l-4 4V5a2 2 0 0 1 2-2h14a2 2 0 0 1 2 2z"></path><line x1="9" y1="10" x2="15" y2="10"></line></svg></button>
-      <button class="tool-btn" id="btn-update" title="Cập nhật"><svg viewBox="0 0 24 24"><path d="M21 2v6h-6"></path><path d="M3 12a9 9 0 0 1 15-6.7L21 8"></path><path d="M3 22v-6h6"></path><path d="M21 12a9 9 0 0 1-15 6.7L3 16"></path></svg></button>
+      <button class="tool-btn launcher" id="btn-tools-launcher" title="Mở bảng công cụ">
+        <svg viewBox="0 0 24 24"><path d="M4 4h6v6H4z"></path><path d="M14 4h6v6h-6z"></path><path d="M4 14h6v6H4z"></path><path d="M14 14h6v6h-6z"></path></svg>
+      </button>
+    </div>
+  </div>
+
+  <div id="tools-overlay" aria-hidden="true">
+    <div class="tools-scrim" data-tools-close="true"></div>
+    <div class="tools-panel" role="dialog" aria-label="Bảng công cụ 9Meta">
+      <div class="tools-head">
+        <div>
+          <h3 class="tools-title">Bảng công cụ 9Meta</h3>
+          <p class="tools-subtitle">9 chức năng chính trong một launcher gọn gàng.</p>
+        </div>
+        <button class="modal-btn cancel" id="tools-close">Đóng</button>
+      </div>
+      <div class="tools-grid">
+        <button class="tool-tile" data-tool-action="dashboard"><span class="tool-tile-icon"><svg viewBox="0 0 24 24"><path d="M3 13h8V3H3z"></path><path d="M13 21h8v-6h-8z"></path><path d="M13 10h8V3h-8z"></path><path d="M3 21h8v-4H3z"></path></svg></span><strong>Dashboard</strong><span>Thống kê hoạt động</span></button>
+        <button class="tool-tile" data-tool-action="workspaces"><span class="tool-tile-icon"><svg viewBox="0 0 24 24"><path d="M3 7l9-4 9 4-9 4-9-4z"></path><path d="M3 12l9 4 9-4"></path><path d="M3 17l9 4 9-4"></path></svg></span><strong>Workspace</strong><span>Tách dữ liệu profile</span></button>
+        <button class="tool-tile" data-tool-action="crm"><span class="tool-tile-icon"><svg viewBox="0 0 24 24"><path d="M17 21v-2a4 4 0 0 0-4-4H5a4 4 0 0 0-4 4v2"></path><circle cx="9" cy="7" r="4"></circle><path d="M23 21v-2a4 4 0 0 0-3-3.87"></path></svg></span><strong>CRM mini</strong><span>Quản lý contact</span></button>
+        <button class="tool-tile" data-tool-action="campaigns"><span class="tool-tile-icon"><svg viewBox="0 0 24 24"><path d="M3 11l18-5v12L3 13z"></path><path d="M11 13.5V19a2 2 0 0 1-2 2H7"></path></svg></span><strong>Campaign</strong><span>Gửi hàng loạt Zalo</span></button>
+        <button class="tool-tile" data-tool-action="ai"><span class="tool-tile-icon"><svg viewBox="0 0 24 24"><path d="M12 2v4"></path><path d="M12 18v4"></path><path d="M2 12h4"></path><path d="M18 12h4"></path><circle cx="12" cy="12" r="3"></circle></svg></span><strong>AI Rewrite</strong><span>Viết lại tin nhắn</span></button>
+        <button class="tool-tile" data-tool-action="quick-replies"><span class="tool-tile-icon"><svg viewBox="0 0 24 24"><path d="M21 15a2 2 0 0 1-2 2H7l-4 4V5a2 2 0 0 1 2-2h14a2 2 0 0 1 2 2z"></path><line x1="9" y1="10" x2="15" y2="10"></line></svg></span><strong>Tin mẫu</strong><span>Quick replies /1 /2</span></button>
+        <button class="tool-tile" data-tool-action="update"><span class="tool-tile-icon"><svg viewBox="0 0 24 24"><path d="M21 2v6h-6"></path><path d="M3 12a9 9 0 0 1 15-6.7L21 8"></path><path d="M3 22v-6h6"></path><path d="M21 12a9 9 0 0 1-15 6.7L3 16"></path></svg></span><strong>Cập nhật</strong><span>Kiểm tra phiên bản</span></button>
+        <button class="tool-tile" data-tool-action="lock"><span class="tool-tile-icon"><svg viewBox="0 0 24 24"><rect x="3" y="11" width="18" height="11" rx="2"></rect><path d="M7 11V7a5 5 0 0 1 10 0v4"></path></svg></span><strong>Khóa app</strong><span>Bảo vệ phiên đăng nhập</span></button>
+        <button class="tool-tile" data-tool-action="dark-mode"><span class="tool-tile-icon"><svg viewBox="0 0 24 24"><path d="M21 12.79A9 9 0 1 1 11.21 3 7 7 0 0 0 21 12.79z"></path></svg></span><strong>Giao diện</strong><span>Tối / sáng</span></button>
+      </div>
+      <div class="tools-mini-row" aria-label="Tiện ích nhanh">
+        <button class="mini-tool" id="btn-shield" data-tool-action="shield" title="ZaDark Shield"><svg viewBox="0 0 24 24"><path d="M12 22s8-4 8-10V5l-8-3-8 3v7c0 6 8 10 8 10z"></path></svg></button>
+        <button class="mini-tool" data-tool-action="zoom-in" title="Phóng to"><svg viewBox="0 0 24 24"><circle cx="11" cy="11" r="8"></circle><line x1="21" y1="21" x2="16.65" y2="16.65"></line><line x1="11" y1="8" x2="11" y2="14"></line><line x1="8" y1="11" x2="14" y2="11"></line></svg></button>
+        <button class="mini-tool" data-tool-action="zoom-out" title="Thu nhỏ"><svg viewBox="0 0 24 24"><circle cx="11" cy="11" r="8"></circle><line x1="21" y1="21" x2="16.65" y2="16.65"></line><line x1="8" y1="11" x2="14" y2="11"></line></svg></button>
+        <button class="mini-tool" data-tool-action="fullscreen" title="Toàn màn hình"><svg viewBox="0 0 24 24"><polyline points="15 3 21 3 21 9"></polyline><polyline points="9 21 3 21 3 15"></polyline><line x1="21" y1="3" x2="14" y2="10"></line><line x1="3" y1="21" x2="10" y2="14"></line></svg></button>
+        <button class="mini-tool" id="btn-pin" data-tool-action="pin" title="Ghim cửa sổ"><svg viewBox="0 0 24 24"><path d="M12 17v5"></path><path d="M9 10.76a2 2 0 0 1-1.11 1.79l-1.78.9A2 2 0 0 0 5 15.24V17h14v-1.76a2 2 0 0 0-1.11-1.79l-1.78-.9A2 2 0 0 1 15 10.76V6a1 1 0 0 1 1-1h.5a.5.5 0 0 0 .5-.5v-1a.5.5 0 0 0-.5-.5h-9a.5.5 0 0 0-.5.5v1a.5.5 0 0 0 .5.5H8a1 1 0 0 1 1 1z"></path></svg></button>
+        <button class="mini-tool" data-tool-action="reload" title="Tải lại trang"><svg viewBox="0 0 24 24"><polyline points="23 4 23 10 17 10"></polyline><path d="M20.49 15a9 9 0 1 1-2.12-9.36L23 10"></path></svg></button>
+      </div>
     </div>
   </div>
 
