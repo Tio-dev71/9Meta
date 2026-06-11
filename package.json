@@ -1,6 +1,6 @@
 {
   "name": "9meta",
-  "version": "1.5.9",
+  "version": "1.6.0",
   "description": "9Meta - Quản lý đa tài khoản Zalo, Messenger, Fanpage, Telegram, WhatsApp...",
   "main": "main.js",
   "scripts": {
@@ -68,7 +68,7 @@
       {
         "provider": "github",
         "owner": "Tio-dev71",
-        "repo": "Deplao-App"
+        "repo": "9Meta"
       }
     ]
   },

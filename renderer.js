@@ -1,66 +1,6 @@
-const { ipcRenderer } = require('electron');
+const { ipcRenderer, shell, clipboard } = require('electron');
 
 const profilesList = document.getElementById('profiles-list');
-
-let profiles = [];
-try {
-  const saved = localStorage.getItem('mp_profiles');
-  if (saved) profiles = JSON.parse(saved);
-} catch (e) { }
-
-if (profiles.length === 0) {
-  profiles = [{ id: Date.now().toString(), name: 'Nick 1', partition: 'persist:nick_1', platform: 'zalo' }];
-  saveProfiles();
-}
-
-profiles = profiles.map((p) => ({ ...p, platform: p.platform || 'zalo' }));
-let activeProfileId = profiles[0].id;
-let downloads = [];
-let updateState = { status: 'idle', progress: 0 };
-let appLocked = false;
-let hasLockPassword = false;
-
-function saveProfiles() { localStorage.setItem('mp_profiles', JSON.stringify(profiles)); }
-function platformIcon(platform) {
-  return { zalo: 'Z', telegram: '✈', messenger: 'M', fanpage: '🚩', whatsapp: 'W', teams: 'T', gmail: 'G' }[platform || 'zalo'] || 'A';
-}
-
-function renderSidebar() {
-  profilesList.innerHTML = '';
-  profiles.forEach(p => {
-    const btn = document.createElement('div');
-    btn.className = `profile-btn ${p.id === activeProfileId ? 'active' : ''}`;
-    btn.title = `${p.name} (${p.platform || 'zalo'}) - Click phải để đổi tên/xóa`;
-    const span = document.createElement('span');
-    span.innerText = p.avatar ? '' : platformIcon(p.platform || 'zalo');
-    if (p.avatar) {
-      const img = document.createElement('img');
-      img.src = p.avatar.startsWith('http') ? p.avatar : `file://${p.avatar.replace(/\\/g, '/')}`;
-      img.style.cssText = 'width:100%;height:100%;border-radius:inherit;object-fit:cover;position:absolute;inset:0;';
-      btn.appendChild(img);
-    } else {
-      btn.appendChild(span);
-    }
-    const badge = document.createElement('div');
-    badge.className = 'badge';
-    badge.id = `badge-${p.id}`;
-    badge.innerText = '0';
-    btn.appendChild(badge);
-    btn.onclick = () => { if (!appLocked) switchProfile(p.id); };
-    btn.oncontextmenu = () => { if (!appLocked) openModal(p); };
-    profilesList.appendChild(btn);
-  });
-}
-
-function switchProfile(id) {
-  activeProfileId = id;
-  renderSidebar();
-  const p = profiles.find(x => x.id === id);
-  if (p) ipcRenderer.send('switch-profile', p);
-}
-
-let editingProfile = null;
-let tempAvatarPath = null;
 const modalOverlay = document.getElementById('modal-overlay');
 const modalTitle = document.getElementById('modal-title');
 const nameInput = document.getElementById('profile-name-input');
@@ -71,23 +11,167 @@ const avatarImg = document.getElementById('avatar-img');
 const avatarLetter = document.getElementById('avatar-letter');
 const avatarInput = document.getElementById('avatar-input');
 
-function openModal(profileToEdit = null) {
+const overlayIds = [
+  'dashboard-overlay',
+  'workspace-overlay',
+  'crm-overlay',
+  'campaign-overlay',
+  'ai-overlay',
+  'quick-replies-overlay',
+  'modal-overlay',
+  'update-overlay',
+  'downloads-overlay',
+];
+
+const defaultState = {
+  profiles: [],
+  quickReplies: [],
+  crmContacts: [],
+  campaigns: [],
+  analyticsEvents: [],
+  aiSettings: { endpoint: '', apiKey: '', model: 'gpt-4o-mini' },
+};
+
+let workspaceState = ipcRenderer.sendSync('workspace-get-state') || { currentId: 'default', workspaces: [], data: defaultState };
+let workspaceData = normalizeWorkspaceData(workspaceState.data);
+let profiles = normalizeProfiles(workspaceData.profiles);
+let activeProfileId = profiles[0]?.id || null;
+let downloads = [];
+let updateState = { status: 'idle', progress: 0, message: '' };
+let appLocked = false;
+let hasLockPassword = false;
+let isDarkMode = true;
+let editingProfile = null;
+let tempAvatarPath = null;
+let editingContactId = null;
+let selectedCampaignId = null;
+let currentChatSnapshot = null;
+let campaignTimers = {};
+
+function normalizeWorkspaceData(data = {}) {
+  return {
+    ...defaultState,
+    ...data,
+    profiles: Array.isArray(data.profiles) ? data.profiles : [],
+    quickReplies: Array.isArray(data.quickReplies) ? data.quickReplies : [],
+    crmContacts: Array.isArray(data.crmContacts) ? data.crmContacts : [],
+    campaigns: Array.isArray(data.campaigns) ? data.campaigns : [],
+    analyticsEvents: Array.isArray(data.analyticsEvents) ? data.analyticsEvents : [],
+    aiSettings: { ...defaultState.aiSettings, ...(data.aiSettings || {}) },
+  };
+}
+function normalizeProfiles(list) {
+  const arr = Array.isArray(list) ? list : [];
+  if (!arr.length) {
+    return [{ id: String(Date.now()), name: 'Nick 1', partition: `persist:nick_${Date.now()}`, platform: 'zalo' }];
+  }
+  return arr.map((p) => ({ ...p, platform: p.platform || 'zalo', partition: p.partition || `persist:nick_${p.id}` }));
+}
+function persistWorkspace() {
+  workspaceData.profiles = profiles;
+  workspaceData = normalizeWorkspaceData(workspaceData);
+  workspaceState = ipcRenderer.sendSync('workspace-save-data', workspaceData);
+  workspaceData = normalizeWorkspaceData(workspaceState.data);
+  profiles = normalizeProfiles(workspaceData.profiles);
+  if (!profiles.some((p) => p.id === activeProfileId)) activeProfileId = profiles[0]?.id || null;
+}
+function trackEvent(type, payload = {}) {
+  workspaceData.analyticsEvents.unshift({ id: `${Date.now()}-${Math.random().toString(16).slice(2, 8)}`, type, payload, createdAt: Date.now() });
+  workspaceData.analyticsEvents = workspaceData.analyticsEvents.slice(0, 120);
+  persistWorkspace();
+  renderDashboard();
+}
+function openOverlay(id) {
   ipcRenderer.send('set-browserview-visibility', false);
+  document.getElementById(id).style.display = 'flex';
+}
+function closeOverlay(id) {
+  document.getElementById(id).style.display = 'none';
+  const stillOpen = overlayIds.some((overlayId) => document.getElementById(overlayId) && document.getElementById(overlayId).style.display === 'flex');
+  if (!stillOpen && !appLocked) ipcRenderer.send('set-browserview-visibility', true);
+}
+function escapeHtml(s) { return String(s || '').replace(/[&<>\"]/g, (c) => ({ '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;' }[c])); }
+function platformIcon(platform) { return { zalo: 'Z', telegram: '✈', messenger: 'M', fanpage: '🚩', whatsapp: 'W', teams: 'T', gmail: 'G' }[platform || 'zalo'] || 'A'; }
+function formatDate(ts) { return new Date(ts || Date.now()).toLocaleString('vi-VN'); }
+function getActiveProfile() { return profiles.find((p) => p.id === activeProfileId) || profiles[0] || null; }
+function getZaloProfiles() { return profiles.filter((profile) => (profile.platform || 'zalo') === 'zalo'); }
+function getCurrentWorkspaceName() { return workspaceState.workspaces.find((w) => w.id === workspaceState.currentId)?.name || 'Workspace'; }
+function statusLabel(status) { return ({ new: 'Mới', hot: 'Khách nóng', follow: 'Đang chăm sóc', bought: 'Đã mua', blacklist: 'Blacklist' }[status] || status || 'Mới'); }
+function randomBetween(min, max) {
+  const low = Number(min) || 1000;
+  const high = Number(max) || low;
+  return Math.floor(low + Math.random() * Math.max(high - low, 1));
+}
+function wait(ms) { return new Promise((resolve) => setTimeout(resolve, ms)); }
+
+function migrateLegacyProfiles() {
+  if (workspaceData.profiles.length) return;
+  try {
+    const saved = localStorage.getItem('mp_profiles');
+    if (saved) {
+      const legacyProfiles = JSON.parse(saved);
+      if (Array.isArray(legacyProfiles) && legacyProfiles.length) {
+        profiles = normalizeProfiles(legacyProfiles);
+        workspaceData.profiles = profiles;
+      }
+    }
+  } catch (e) { }
+  if (!workspaceData.quickReplies.length) {
+    try {
+      const settings = ipcRenderer.sendSync('get-settings');
+      workspaceData.quickReplies = settings.quickReplies || [];
+    } catch (e) { }
+  }
+  persistWorkspace();
+}
+
+function renderSidebar() {
+  profilesList.innerHTML = '';
+  profiles.forEach((p) => {
+    const btn = document.createElement('div');
+    btn.className = `profile-btn ${p.id === activeProfileId ? 'active' : ''}`;
+    btn.title = `${p.name} (${p.platform || 'zalo'})`;
+    const span = document.createElement('span');
+    span.innerText = p.avatar ? '' : platformIcon(p.platform);
+    if (p.avatar) {
+      const img = document.createElement('img');
+      img.src = p.avatar.startsWith('http') ? p.avatar : `file://${String(p.avatar).replace(/\\/g, '/')}`;
+      img.style.cssText = 'width:100%;height:100%;border-radius:inherit;object-fit:cover;position:absolute;inset:0;';
+      btn.appendChild(img);
+    } else btn.appendChild(span);
+    const badge = document.createElement('div');
+    badge.className = 'badge';
+    badge.id = `badge-${p.id}`;
+    badge.innerText = '0';
+    btn.appendChild(badge);
+    btn.onclick = () => !appLocked && switchProfile(p.id);
+    btn.oncontextmenu = (e) => { e.preventDefault(); if (!appLocked) openModal(p); };
+    profilesList.appendChild(btn);
+  });
+}
+function switchProfile(id) {
+  activeProfileId = id;
+  renderSidebar();
+  const profile = getActiveProfile();
+  if (profile) ipcRenderer.send('switch-profile', profile);
+  renderCRMCurrentChat();
+  renderCampaigns();
+}
+function openModal(profileToEdit = null) {
   editingProfile = profileToEdit;
   tempAvatarPath = profileToEdit ? profileToEdit.avatar : null;
   modalTitle.innerText = profileToEdit ? 'Chỉnh sửa tài khoản' : 'Thêm tài khoản';
   nameInput.value = profileToEdit ? profileToEdit.name : '';
-  proxyInput.value = profileToEdit && profileToEdit.proxy ? profileToEdit.proxy : '';
-  platformInput.value = profileToEdit && profileToEdit.platform ? profileToEdit.platform : 'zalo';
-  document.getElementById('modal-delete').style.display = profileToEdit ? 'block' : 'none';
+  proxyInput.value = profileToEdit?.proxy || '';
+  platformInput.value = profileToEdit?.platform || 'zalo';
+  document.getElementById('modal-delete').style.display = profileToEdit ? 'inline-flex' : 'none';
   updateAvatarPreview();
-  modalOverlay.style.display = 'flex';
+  openOverlay('modal-overlay');
   nameInput.focus();
 }
-
 function updateAvatarPreview() {
   if (tempAvatarPath) {
-    avatarImg.src = tempAvatarPath.startsWith('http') ? tempAvatarPath : `file://${tempAvatarPath.replace(/\\/g, '/')}`;
+    avatarImg.src = tempAvatarPath.startsWith('http') ? tempAvatarPath : `file://${String(tempAvatarPath).replace(/\\/g, '/')}`;
     avatarImg.style.display = 'block';
     avatarLetter.style.display = 'none';
   } else {
@@ -96,262 +180,582 @@ function updateAvatarPreview() {
     avatarLetter.innerText = platformIcon(platformInput.value || 'zalo');
   }
 }
-nameInput.addEventListener('input', updateAvatarPreview);
-platformInput.addEventListener('change', updateAvatarPreview);
-avatarPreview.onclick = () => avatarInput.click();
-avatarInput.onchange = (e) => { if (e.target.files && e.target.files[0]) { tempAvatarPath = e.target.files[0].path; updateAvatarPreview(); } };
 
-document.getElementById('modal-delete').onclick = () => {
-  if (!editingProfile) return;
-  if (confirm(`Bạn có chắc chắn muốn XÓA tài khoản [${editingProfile.name}]?`)) {
-    if (profiles.length <= 1) return alert('Phải có ít nhất 1 tài khoản!');
-    profiles = profiles.filter(x => x.id !== editingProfile.id);
-    saveProfiles();
-    ipcRenderer.send('delete-profile', editingProfile.id);
-    if (activeProfileId === editingProfile.id) switchProfile(profiles[0].id);
-    modalOverlay.style.display = 'none';
-    renderSidebar();
-    ipcRenderer.send('set-browserview-visibility', true);
+function renderDashboard() {
+  const contacts = workspaceData.crmContacts || [];
+  const campaigns = workspaceData.campaigns || [];
+  const quickReplies = workspaceData.quickReplies || [];
+  const events = workspaceData.analyticsEvents || [];
+  const running = campaigns.filter((c) => c.status === 'running').length;
+  const completed = campaigns.filter((c) => c.status === 'done').length;
+  document.getElementById('dashboard-stats').innerHTML = [
+    { label: 'Profiles', value: profiles.length, foot: 'Tài khoản trong workspace' },
+    { label: 'CRM Contacts', value: contacts.length, foot: 'Tổng khách hàng cục bộ' },
+    { label: 'Campaigns', value: campaigns.length, foot: `${running} chạy • ${completed} hoàn tất` },
+    { label: 'Quick Replies', value: quickReplies.length, foot: 'Mẫu phản hồi nhanh' },
+    { label: 'Downloads', value: downloads.length, foot: 'Lịch sử tải xuống' },
+    { label: 'Events', value: events.length, foot: 'Analytics nội bộ' },
+  ].map((item) => `<div class="metric-card"><div class="metric-label">${item.label}</div><div class="metric-value">${item.value}</div><div class="metric-foot">${item.foot}</div></div>`).join('');
+  document.getElementById('dashboard-current-workspace').innerText = getCurrentWorkspaceName();
+  document.getElementById('dashboard-workspace-summary').innerHTML = `Workspace <strong>${escapeHtml(getCurrentWorkspaceName())}</strong> đang chứa <strong>${profiles.length}</strong> profile, <strong>${contacts.length}</strong> contact và <strong>${quickReplies.length}</strong> quick replies.`;
+  const sentCount = campaigns.reduce((sum, c) => sum + ((c.logs || []).filter((log) => log.status === 'sent').length), 0);
+  const failCount = campaigns.reduce((sum, c) => sum + ((c.logs || []).filter((log) => log.status === 'failed').length), 0);
+  document.getElementById('dashboard-kpis').innerHTML = `
+    <span class="chip success">${sentCount} lượt gửi OK</span>
+    <span class="chip hot">${running} campaign chạy</span>
+    <span class="chip danger">${failCount} lượt lỗi</span>
+    <span class="chip">${events.filter((e) => e.type === 'ai_rewrite').length} AI rewrite</span>`;
+  const activityList = document.getElementById('activity-list');
+  const latest = events.slice(0, 12);
+  if (!latest.length) activityList.innerHTML = '<div class="empty-state">Chưa có activity nào.</div>';
+  else activityList.innerHTML = latest.map((event) => `<div class="activity-item"><div class="row"><div class="title-sm">${escapeHtml(event.type)}</div><div class="muted">${formatDate(event.createdAt)}</div></div><div class="muted">${escapeHtml(JSON.stringify(event.payload || {}))}</div></div>`).join('');
+}
+
+function renderWorkspaces() {
+  const list = document.getElementById('workspace-list');
+  if (!workspaceState.workspaces.length) {
+    list.innerHTML = '<div class="empty-state">Chưa có workspace.</div>';
+    return;
   }
-};
-document.getElementById('modal-cancel').onclick = () => { modalOverlay.style.display = 'none'; ipcRenderer.send('set-browserview-visibility', true); };
-document.getElementById('modal-save').onclick = () => {
-  let name = nameInput.value.trim();
-  if (!name) name = `Tài khoản ${profiles.length + 1}`;
-  if (editingProfile) {
-    editingProfile.name = name;
-    editingProfile.avatar = tempAvatarPath;
-    editingProfile.platform = platformInput.value;
-    editingProfile.proxy = proxyInput.value.trim();
-    ipcRenderer.send('update-profile-settings', editingProfile);
-  } else {
-    const id = Date.now().toString();
-    profiles.push({ id, name, avatar: tempAvatarPath, partition: `persist:nick_${id}`, platform: platformInput.value, proxy: proxyInput.value.trim() });
-    activeProfileId = id;
+  list.innerHTML = workspaceState.workspaces.map((workspace) => `
+    <div class="workspace-item">
+      <div class="row"><div><div class="title-lg">${escapeHtml(workspace.name)}</div><div class="muted">${workspace.id} • ${formatDate(workspace.createdAt)}</div></div><button class="modal-btn ${workspace.id === workspaceState.currentId ? 'save' : 'cancel'}" data-workspace="${workspace.id}">${workspace.id === workspaceState.currentId ? 'Đang dùng' : 'Chuyển'}</button></div>
+    </div>`).join('');
+  list.querySelectorAll('[data-workspace]').forEach((btn) => {
+    btn.onclick = () => {
+      const id = btn.getAttribute('data-workspace');
+      if (id === workspaceState.currentId) return;
+      workspaceState = ipcRenderer.sendSync('workspace-switch', id);
+      workspaceData = normalizeWorkspaceData(workspaceState.data);
+      profiles = normalizeProfiles(workspaceData.profiles);
+      activeProfileId = profiles[0]?.id || null;
+      renderAll();
+      if (activeProfileId) switchProfile(activeProfileId);
+      trackEvent('workspace_switch', { workspaceId: id });
+    };
+  });
+}
+
+function renderCurrentChatSummary() {
+  const box = document.getElementById('crm-current-chat');
+  if (!currentChatSnapshot) {
+    box.innerHTML = 'Chưa có dữ liệu tab hiện tại.';
+    return;
   }
-  saveProfiles();
-  modalOverlay.style.display = 'none';
-  renderSidebar();
-  ipcRenderer.send('set-browserview-visibility', true);
-  if (!editingProfile) switchProfile(activeProfileId);
-};
-document.getElementById('btn-add-profile').onclick = () => openModal();
+  box.innerHTML = `<div class="title-sm">${escapeHtml(currentChatSnapshot.name || 'Không rõ tên')}</div><div class="muted">Platform: ${escapeHtml(currentChatSnapshot.platform || '')}</div><div class="muted">Profile: ${escapeHtml(getActiveProfile()?.name || '')}</div>`;
+}
+function renderCRMList() {
+  const query = document.getElementById('crm-search').value.trim().toLowerCase();
+  const activeProfile = getActiveProfile();
+  const contacts = (workspaceData.crmContacts || []).filter((contact) => !activeProfile || contact.profileId === activeProfile.id);
+  const filtered = contacts.filter((contact) => [contact.name, contact.phone, (contact.tags || []).join(',')].join(' ').toLowerCase().includes(query));
+  const list = document.getElementById('crm-contact-list');
+  if (!filtered.length) {
+    list.innerHTML = '<div class="empty-state">Chưa có contact cho profile này.</div>';
+    return;
+  }
+  list.innerHTML = filtered.map((contact) => `
+    <div class="contact-item" data-contact="${contact.id}">
+      <div class="row"><div><div class="title-sm">${escapeHtml(contact.name || 'Chưa đặt tên')}</div><div class="muted">${escapeHtml(contact.phone || 'Chưa có số điện thoại')}</div></div><span class="chip ${contact.status === 'hot' ? 'hot' : contact.status === 'blacklist' ? 'danger' : contact.status === 'bought' ? 'success' : ''}">${escapeHtml(statusLabel(contact.status))}</span></div>
+      <div class="tag-list mt-12">${(contact.tags || []).map((tag) => `<span class="chip">${escapeHtml(tag)}</span>`).join('')}</div>
+      <div class="muted mt-12">${escapeHtml(contact.note || '')}</div>
+    </div>`).join('');
+  list.querySelectorAll('[data-contact]').forEach((item) => {
+    item.onclick = () => {
+      const contact = workspaceData.crmContacts.find((entry) => entry.id === item.getAttribute('data-contact'));
+      if (contact) fillContactForm(contact);
+    };
+  });
+}
+function fillContactForm(contact) {
+  editingContactId = contact?.id || null;
+  document.getElementById('crm-name').value = contact?.name || '';
+  document.getElementById('crm-phone').value = contact?.phone || '';
+  document.getElementById('crm-status').value = contact?.status || 'new';
+  document.getElementById('crm-tags').value = (contact?.tags || []).join(', ');
+  document.getElementById('crm-note').value = contact?.note || '';
+  document.getElementById('crm-selected-label').innerText = contact ? `Đang sửa: ${contact.name}` : 'Đang tạo contact mới';
+}
+function renderCRMCurrentChat() {
+  renderCurrentChatSummary();
+  renderCRMList();
+  const zaloCount = getZaloProfiles().length;
+  const activeZaloContacts = (workspaceData.crmContacts || []).filter((contact) => contact.profileId === getActiveProfile()?.id && (getActiveProfile()?.platform || 'zalo') === 'zalo').length;
+  document.getElementById('campaign-target-count').innerText = `${zaloCount} Zalo account • ${activeZaloContacts} CRM target`;
+}
+function saveContact() {
+  const activeProfile = getActiveProfile();
+  if (!activeProfile) return alert('Chưa có profile nào.');
+  const name = document.getElementById('crm-name').value.trim();
+  if (!name) return alert('Vui lòng nhập tên contact.');
+  const payload = {
+    id: editingContactId || `crm_${Date.now()}`,
+    profileId: activeProfile.id,
+    name,
+    phone: document.getElementById('crm-phone').value.trim(),
+    status: document.getElementById('crm-status').value,
+    tags: document.getElementById('crm-tags').value.split(',').map((item) => item.trim()).filter(Boolean),
+    note: document.getElementById('crm-note').value.trim(),
+    platform: activeProfile.platform,
+    updatedAt: Date.now(),
+  };
+  if (editingContactId) workspaceData.crmContacts = workspaceData.crmContacts.map((entry) => entry.id === editingContactId ? payload : entry);
+  else workspaceData.crmContacts.unshift({ ...payload, createdAt: Date.now() });
+  persistWorkspace();
+  trackEvent(editingContactId ? 'crm_contact_updated' : 'crm_contact_created', { id: payload.id, profileId: activeProfile.id });
+  fillContactForm(null);
+  renderCRMCurrentChat();
+  renderDashboard();
+}
+function deleteContact() {
+  if (!editingContactId) return;
+  if (!confirm('Xóa contact này?')) return;
+  workspaceData.crmContacts = workspaceData.crmContacts.filter((entry) => entry.id !== editingContactId);
+  persistWorkspace();
+  trackEvent('crm_contact_deleted', { id: editingContactId });
+  fillContactForm(null);
+  renderCRMCurrentChat();
+}
+
+function renderCampaigns() {
+  const list = document.getElementById('campaign-list');
+  const activeProfile = getActiveProfile();
+  const campaigns = (workspaceData.campaigns || []).filter((campaign) => campaign.platform === 'zalo' || (!campaign.platform && (!activeProfile || campaign.profileId === activeProfile.id)));
+  if (!campaigns.length) {
+    list.innerHTML = '<div class="empty-state">Chưa có campaign nào.</div>';
+    return;
+  }
+  list.innerHTML = campaigns.map((campaign) => {
+    const sent = (campaign.logs || []).filter((log) => log.status === 'sent').length;
+    const failed = (campaign.logs || []).filter((log) => log.status === 'failed').length;
+    const total = campaign.targets?.length || 0;
+    return `
+      <div class="campaign-item" data-campaign="${campaign.id}">
+        <div class="row"><div><div class="title-sm">${escapeHtml(campaign.name)}</div><div class="muted">${sent}/${total} sent • ${failed} fail</div></div><span class="pill ${escapeHtml(campaign.status || 'draft')}">${escapeHtml(campaign.status || 'draft')}</span></div>
+        <div class="muted mt-12">${escapeHtml(campaign.message || '')}</div>
+        <div class="row mt-12"><button class="modal-btn cancel" data-action="select">Chọn</button><button class="modal-btn cancel" data-action="pause">Pause</button><button class="modal-btn cancel" data-action="stop">Stop</button></div>
+      </div>`;
+  }).join('');
+  list.querySelectorAll('[data-campaign]').forEach((item) => {
+    const id = item.getAttribute('data-campaign');
+    item.querySelector('[data-action="select"]').onclick = () => { selectedCampaignId = id; alert('Đã chọn campaign để chạy.'); };
+    item.querySelector('[data-action="pause"]').onclick = () => pauseCampaign(id);
+    item.querySelector('[data-action="stop"]').onclick = () => stopCampaign(id);
+  });
+}
+function createCampaign() {
+  const activeProfile = getActiveProfile();
+  if (!activeProfile) return alert('Chưa có profile.');
+  if ((activeProfile.platform || 'zalo') !== 'zalo') return alert('Tính năng gửi hàng loạt chỉ áp dụng cho tài khoản Zalo. Hãy chọn một profile Zalo trước.');
+  const zaloProfiles = getZaloProfiles();
+  if (!zaloProfiles.length) return alert('Workspace chưa có tài khoản Zalo nào.');
+  const targets = workspaceData.crmContacts.filter((contact) => contact.profileId === activeProfile.id);
+  if (!targets.length) return alert('Profile Zalo hiện tại chưa có contact CRM nào.');
+  const name = document.getElementById('campaign-name').value.trim();
+  const message = document.getElementById('campaign-message').value.trim();
+  if (!name || !message) return alert('Vui lòng nhập tên chiến dịch và nội dung.');
+  const batchSize = Number(document.getElementById('campaign-batch-size').value || 20);
+  const campaign = {
+    id: `camp_${Date.now()}`,
+    platform: 'zalo',
+    profileId: activeProfile.id,
+    profileIds: document.getElementById('campaign-mode').value === 'zalo_accounts' ? zaloProfiles.map((profile) => profile.id) : [activeProfile.id],
+    name,
+    message,
+    delayMin: Number(document.getElementById('campaign-delay-min').value || 2500),
+    delayMax: Number(document.getElementById('campaign-delay-max').value || 6500),
+    batchSize,
+    mode: document.getElementById('campaign-mode').value,
+    status: 'draft',
+    createdAt: Date.now(),
+    targets: targets.slice(0, batchSize).map((target) => ({ id: target.id, name: target.name, phone: target.phone })),
+    accountLogs: [],
+    logs: [],
+  };
+  workspaceData.campaigns.unshift(campaign);
+  selectedCampaignId = campaign.id;
+  persistWorkspace();
+  trackEvent('campaign_created', { id: campaign.id, targets: campaign.targets.length });
+  renderCampaigns();
+  renderDashboard();
+}
+function updateCampaign(campaignId, patch) {
+  workspaceData.campaigns = workspaceData.campaigns.map((campaign) => campaign.id === campaignId ? { ...campaign, ...patch } : campaign);
+  persistWorkspace();
+  renderCampaigns();
+  renderDashboard();
+}
+async function runCampaign(campaignId) {
+  const campaign = workspaceData.campaigns.find((entry) => entry.id === campaignId);
+  if (!campaign) return alert('Không tìm thấy campaign.');
+  if (campaign.platform && campaign.platform !== 'zalo') return alert('Campaign này không phải campaign Zalo.');
+  campaign.status = 'running';
+  persistWorkspace();
+  renderCampaigns();
+  trackEvent('zalo_campaign_started', { id: campaignId, mode: campaign.mode });
+  if (campaign.mode === 'zalo_accounts') return runZaloAccountsCampaign(campaignId);
+  for (const target of campaign.targets) {
+    const latest = workspaceData.campaigns.find((entry) => entry.id === campaignId);
+    if (!latest || latest.status === 'stopped') break;
+    if (latest.status === 'paused') {
+      campaignTimers[campaignId] = setTimeout(() => runCampaign(campaignId), 1200);
+      return;
+    }
+    await wait(randomBetween(latest.delayMin, latest.delayMax));
+    try {
+      const result = latest.mode === 'auto'
+        ? await ipcRenderer.invoke('active-chat-send-text', latest.message, { platform: 'zalo', profileId: latest.profileId })
+        : { ok: true, assisted: true, message: 'Assist mode: đã lưu log, bạn tự mở đúng hội thoại để gửi.' };
+      const refreshed = workspaceData.campaigns.find((entry) => entry.id === campaignId);
+      refreshed.logs.push({ id: `${Date.now()}-${target.id}`, targetId: target.id, targetName: target.name, status: result.ok ? 'sent' : 'failed', detail: result.message || '', createdAt: Date.now() });
+      persistWorkspace();
+      trackEvent(result.ok ? 'zalo_campaign_sent' : 'zalo_campaign_failed', { campaignId, targetId: target.id });
+      renderCampaigns();
+    } catch (err) {
+      const refreshed = workspaceData.campaigns.find((entry) => entry.id === campaignId);
+      refreshed.logs.push({ id: `${Date.now()}-${target.id}`, targetId: target.id, targetName: target.name, status: 'failed', detail: err.message || String(err), createdAt: Date.now() });
+      persistWorkspace();
+      trackEvent('zalo_campaign_failed', { campaignId, targetId: target.id });
+    }
+  }
+  updateCampaign(campaignId, { status: 'done' });
+  trackEvent('zalo_campaign_done', { id: campaignId });
+}
+async function runZaloAccountsCampaign(campaignId) {
+  const campaign = workspaceData.campaigns.find((entry) => entry.id === campaignId);
+  const zaloProfiles = getZaloProfiles().filter((profile) => (campaign.profileIds || []).includes(profile.id));
+  if (!zaloProfiles.length) return updateCampaign(campaignId, { status: 'failed' });
+  for (const profile of zaloProfiles) {
+    const latest = workspaceData.campaigns.find((entry) => entry.id === campaignId);
+    if (!latest || latest.status === 'stopped') break;
+    if (latest.status === 'paused') {
+      campaignTimers[campaignId] = setTimeout(() => runZaloAccountsCampaign(campaignId), 1200);
+      return;
+    }
+    activeProfileId = profile.id;
+    switchProfile(profile.id);
+    await wait(1800);
+    await wait(randomBetween(latest.delayMin, latest.delayMax));
+    const message = latest.message.replace(/\{account\}/g, profile.name || 'Zalo');
+    const result = await ipcRenderer.invoke('active-chat-send-text', message, { platform: 'zalo', profileId: profile.id });
+    const refreshed = workspaceData.campaigns.find((entry) => entry.id === campaignId);
+    refreshed.accountLogs = refreshed.accountLogs || [];
+    refreshed.accountLogs.push({ id: `${Date.now()}-${profile.id}`, profileId: profile.id, profileName: profile.name, status: result.ok ? 'sent' : 'failed', detail: result.message || '', createdAt: Date.now() });
+    persistWorkspace();
+    trackEvent(result.ok ? 'zalo_account_campaign_sent' : 'zalo_account_campaign_failed', { campaignId, profileId: profile.id });
+    renderCampaigns();
+  }
+  updateCampaign(campaignId, { status: 'done' });
+  trackEvent('zalo_accounts_campaign_done', { id: campaignId });
+}
+function pauseCampaign(campaignId) { updateCampaign(campaignId, { status: 'paused' }); trackEvent('campaign_paused', { id: campaignId }); }
+function stopCampaign(campaignId) {
+  if (campaignTimers[campaignId]) clearTimeout(campaignTimers[campaignId]);
+  updateCampaign(campaignId, { status: 'stopped' });
+  trackEvent('campaign_stopped', { id: campaignId });
+}
+
+function renderQuickReplies() {
+  const quickReplies = workspaceData.quickReplies || [];
+  const list = document.getElementById('quick-replies-list');
+  if (!quickReplies.length) {
+    list.innerHTML = '<div class="empty-state">Chưa có tin nhắn mẫu nào.</div>';
+    return;
+  }
+  list.innerHTML = quickReplies.map((reply, index) => `
+    <div class="download-item">
+      <div class="row"><div class="title-sm">/${index + 1}</div><div><button class="modal-btn cancel" data-edit="${index}">Sửa</button><button class="modal-btn warn" data-delete="${index}">Xóa</button></div></div>
+      <div class="muted mt-12">${escapeHtml(reply.message)}</div>
+    </div>`).join('');
+  list.querySelectorAll('[data-edit]').forEach((button) => {
+    button.onclick = () => {
+      const index = Number(button.getAttribute('data-edit'));
+      const next = prompt('Sửa quick reply', workspaceData.quickReplies[index].message);
+      if (next && next.trim()) {
+        workspaceData.quickReplies[index].message = next.trim();
+        persistWorkspace();
+        trackEvent('quick_reply_updated', { index });
+        renderQuickReplies();
+      }
+    };
+  });
+  list.querySelectorAll('[data-delete]').forEach((button) => {
+    button.onclick = () => {
+      const index = Number(button.getAttribute('data-delete'));
+      workspaceData.quickReplies.splice(index, 1);
+      persistWorkspace();
+      trackEvent('quick_reply_deleted', { index });
+      renderQuickReplies();
+    };
+  });
+}
+function addQuickReplyFromInput() {
+  const input = document.getElementById('quick-reply-input');
+  const message = input.value.trim();
+  if (!message) return;
+  workspaceData.quickReplies.push({ message });
+  persistWorkspace();
+  trackEvent('quick_reply_created', { length: workspaceData.quickReplies.length });
+  input.value = '';
+  renderQuickReplies();
+  renderDashboard();
+}
 
 function renderDownloads() {
   const list = document.getElementById('downloads-list');
-  if (!downloads.length) { list.innerHTML = '<p class="download-meta">Chưa có file tải xuống.</p>'; return; }
-  list.innerHTML = '';
-  downloads.slice().reverse().forEach((d) => {
-    const item = document.createElement('div');
-    item.className = 'download-item';
+  if (!list) return;
+  if (!downloads.length) {
+    list.innerHTML = '<p class="download-meta">Chưa có file tải xuống.</p>';
+    return;
+  }
+  list.innerHTML = downloads.slice().reverse().map((d) => {
     const pct = d.totalBytes ? Math.round((d.receivedBytes / d.totalBytes) * 100) : (d.status === 'completed' ? 100 : 0);
-    item.innerHTML = `<div class="download-name">${escapeHtml(d.filename || 'download')}</div><div class="download-meta">${d.statusText || d.status || ''} ${pct ? `• ${pct}%` : ''}</div><div class="progress"><span style="width:${pct}%"></span></div><div class="row" style="margin-top:10px;"><button class="modal-btn cancel" data-action="folder">Thư mục</button><div><button class="modal-btn cancel" data-action="open">Mở</button><button class="modal-btn cancel" data-action="remove">Xóa</button></div></div>`;
-    item.querySelector('[data-action="open"]').onclick = () => ipcRenderer.send('open-download', d.id);
-    item.querySelector('[data-action="folder"]').onclick = () => ipcRenderer.send('show-download-in-folder', d.id);
-    item.querySelector('[data-action="remove"]').onclick = () => { ipcRenderer.send('remove-download', d.id); downloads = downloads.filter(x => x.id !== d.id); renderDownloads(); };
-    list.appendChild(item);
+    return `<div class="download-item"><div class="title-sm">${escapeHtml(d.filename || 'download')}</div><div class="download-meta">${escapeHtml(d.statusText || d.status || '')} ${pct ? `• ${pct}%` : ''}</div><div class="progress mt-12"><span style="width:${pct}%"></span></div><div class="row mt-12"><button class="modal-btn cancel" data-folder="${d.id}">Thư mục</button><div><button class="modal-btn cancel" data-open="${d.id}">Mở</button><button class="modal-btn warn" data-remove="${d.id}">Xóa</button></div></div></div>`;
+  }).join('');
+  list.querySelectorAll('[data-open]').forEach((btn) => btn.onclick = () => ipcRenderer.send('open-download', btn.getAttribute('data-open')));
+  list.querySelectorAll('[data-folder]').forEach((btn) => btn.onclick = () => ipcRenderer.send('show-download-in-folder', btn.getAttribute('data-folder')));
+  list.querySelectorAll('[data-remove]').forEach((btn) => btn.onclick = () => {
+    ipcRenderer.send('remove-download', btn.getAttribute('data-remove'));
+    downloads = downloads.filter((item) => item.id !== btn.getAttribute('data-remove'));
+    renderDownloads();
   });
 }
-function escapeHtml(s) { return String(s).replace(/[&<>"]/g, c => ({ '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;' }[c])); }
-
-const downloadsButton = document.getElementById('btn-downloads');
-const downloadsCloseButton = document.getElementById('downloads-close');
-if (downloadsButton) downloadsButton.onclick = () => { document.getElementById('downloads-overlay').style.display = 'flex'; ipcRenderer.send('get-downloads'); };
-if (downloadsCloseButton) downloadsCloseButton.onclick = () => document.getElementById('downloads-overlay').style.display = 'none';
-ipcRenderer.on('downloads-list', (_, list) => { downloads = list || []; renderDownloads(); });
-ipcRenderer.on('download-updated', (_, item) => { downloads = downloads.filter(d => d.id !== item.id).concat(item); renderDownloads(); });
-
 function renderUpdate() {
-  const isMacSigError = updateState.status === 'error' && updateState.message && updateState.message.toLowerCase().includes('code signature');
-  
-  if (isMacSigError) {
-    document.getElementById('update-status').innerHTML = 'Hệ điều hành macOS yêu cầu tải bản cập nhật thủ công do giới hạn bảo mật.<br><a href="#" id="mac-manual-download" style="color:#0a84ff;">Tải xuống bản mới nhất tại đây</a>';
-    setTimeout(() => {
-      const btn = document.getElementById('mac-manual-download');
-      if (btn) btn.onclick = (e) => { e.preventDefault(); require('electron').shell.openExternal('https://github.com/Tio-dev71/Deplao-App/releases/latest'); };
-    }, 100);
-  } else {
-    document.getElementById('update-status').innerText = updateState.message || 'Sẵn sàng kiểm tra cập nhật.';
-  }
-  
+  document.getElementById('update-status').innerText = updateState.message || 'Sẵn sàng kiểm tra cập nhật.';
   document.getElementById('update-progress').style.width = `${updateState.progress || 0}%`;
-  document.getElementById('update-download').style.display = updateState.status === 'available' ? 'inline-block' : 'none';
-  document.getElementById('update-install').style.display = updateState.status === 'downloaded' ? 'inline-block' : 'none';
+  document.getElementById('update-download').style.display = updateState.status === 'available' ? 'inline-flex' : 'none';
+  document.getElementById('update-install').style.display = updateState.status === 'downloaded' ? 'inline-flex' : 'none';
 }
 
-document.getElementById('btn-update').onclick = () => {
-  ipcRenderer.send('set-browserview-visibility', false);
-  document.getElementById('update-overlay').style.display = 'flex';
-  ipcRenderer.send('check-for-updates');
-  ipcRenderer.send('get-update-state');
-};
-document.getElementById('update-close').onclick = () => {
-  document.getElementById('update-overlay').style.display = 'none';
-  ipcRenderer.send('set-browserview-visibility', true);
-};
-document.getElementById('update-check').onclick = () => ipcRenderer.send('check-for-updates');
-document.getElementById('update-download').onclick = () => ipcRenderer.send('download-update');
-document.getElementById('update-install').onclick = () => ipcRenderer.send('install-update');
+function fillAISettings() {
+  document.getElementById('ai-endpoint').value = workspaceData.aiSettings.endpoint || localStorage.getItem('AI_ENDPOINT') || '';
+  document.getElementById('ai-api-key').value = workspaceData.aiSettings.apiKey || localStorage.getItem('AI_API_KEY') || '';
+  document.getElementById('ai-model').value = workspaceData.aiSettings.model || 'gpt-4o-mini';
+}
+function saveAISettings() {
+  workspaceData.aiSettings = {
+    endpoint: document.getElementById('ai-endpoint').value.trim(),
+    apiKey: document.getElementById('ai-api-key').value.trim(),
+    model: document.getElementById('ai-model').value.trim() || 'gpt-4o-mini',
+  };
+  localStorage.setItem('AI_ENDPOINT', workspaceData.aiSettings.endpoint);
+  localStorage.setItem('AI_API_KEY', workspaceData.aiSettings.apiKey);
+  persistWorkspace();
+  trackEvent('ai_settings_saved', { endpoint: workspaceData.aiSettings.endpoint });
+  document.getElementById('ai-status').innerText = 'Đã lưu cấu hình';
+}
+async function runAIRewrite() {
+  saveAISettings();
+  const text = document.getElementById('ai-input').value.trim();
+  if (!text) return alert('Nhập nội dung cần rewrite trước.');
+  document.getElementById('ai-status').innerText = 'Đang xử lý...';
+  const result = await ipcRenderer.invoke('ai-rewrite', {
+    endpoint: workspaceData.aiSettings.endpoint,
+    apiKey: workspaceData.aiSettings.apiKey,
+    model: workspaceData.aiSettings.model,
+    text,
+    mode: document.getElementById('ai-mode').value,
+  });
+  if (!result.ok) {
+    document.getElementById('ai-status').innerText = result.message || 'Lỗi';
+    return;
+  }
+  document.getElementById('ai-output').value = result.text || '';
+  document.getElementById('ai-status').innerText = 'Hoàn tất';
+  trackEvent('ai_rewrite', { mode: document.getElementById('ai-mode').value });
+}
 
-ipcRenderer.on('update-state', (_, state) => {
-  updateState = state;
+function renderAll() {
+  renderSidebar();
+  renderDashboard();
+  renderWorkspaces();
+  renderCRMCurrentChat();
+  renderCampaigns();
+  renderQuickReplies();
+  renderDownloads();
   renderUpdate();
-  // Auto-show overlay when update available/downloaded (e.g. triggered from tray menu)
-  if (state.status === 'available' || state.status === 'downloaded') {
-    if (document.getElementById('update-overlay').style.display !== 'flex') {
-      ipcRenderer.send('set-browserview-visibility', false);
-      document.getElementById('update-overlay').style.display = 'flex';
-    }
+  fillAISettings();
+}
+
+avatarPreview.onclick = () => avatarInput.click();
+avatarInput.onchange = (e) => { if (e.target.files && e.target.files[0]) { tempAvatarPath = e.target.files[0].path; updateAvatarPreview(); } };
+platformInput.addEventListener('change', updateAvatarPreview);
+nameInput.addEventListener('input', updateAvatarPreview);
+
+document.querySelectorAll('[data-close]').forEach((button) => { button.onclick = () => closeOverlay(button.getAttribute('data-close')); });
+document.getElementById('btn-add-profile').onclick = () => openModal();
+document.getElementById('modal-cancel').onclick = () => closeOverlay('modal-overlay');
+document.getElementById('modal-delete').onclick = () => {
+  if (!editingProfile) return;
+  if (profiles.length <= 1) return alert('Phải có ít nhất 1 tài khoản.');
+  if (!confirm(`Xóa tài khoản ${editingProfile.name}?`)) return;
+  profiles = profiles.filter((profile) => profile.id !== editingProfile.id);
+  ipcRenderer.send('delete-profile', editingProfile.id);
+  activeProfileId = profiles[0]?.id || null;
+  persistWorkspace();
+  trackEvent('profile_deleted', { id: editingProfile.id });
+  closeOverlay('modal-overlay');
+  renderAll();
+  if (activeProfileId) switchProfile(activeProfileId);
+};
+document.getElementById('modal-save').onclick = () => {
+  const name = nameInput.value.trim() || `Tài khoản ${profiles.length + 1}`;
+  if (editingProfile) {
+    editingProfile.name = name;
+    editingProfile.proxy = proxyInput.value.trim();
+    editingProfile.platform = platformInput.value;
+    editingProfile.avatar = tempAvatarPath;
+    ipcRenderer.send('update-profile-settings', editingProfile);
+    trackEvent('profile_updated', { id: editingProfile.id });
+  } else {
+    const id = String(Date.now());
+    profiles.push({ id, name, avatar: tempAvatarPath, partition: `persist:nick_${id}`, platform: platformInput.value, proxy: proxyInput.value.trim() });
+    activeProfileId = id;
+    trackEvent('profile_created', { id });
+  }
+  persistWorkspace();
+  closeOverlay('modal-overlay');
+  renderAll();
+  if (activeProfileId) switchProfile(activeProfileId);
+};
+
+document.getElementById('btn-dashboard').onclick = () => { renderDashboard(); openOverlay('dashboard-overlay'); };
+document.getElementById('btn-workspaces').onclick = () => { renderWorkspaces(); openOverlay('workspace-overlay'); };
+document.getElementById('btn-crm').onclick = () => { renderCRMCurrentChat(); openOverlay('crm-overlay'); };
+document.getElementById('btn-campaigns').onclick = () => { renderCampaigns(); openOverlay('campaign-overlay'); };
+document.getElementById('btn-ai').onclick = () => { fillAISettings(); openOverlay('ai-overlay'); };
+document.getElementById('btn-quick-replies').onclick = () => { renderQuickReplies(); openOverlay('quick-replies-overlay'); };
+document.getElementById('btn-update').onclick = () => { openOverlay('update-overlay'); ipcRenderer.send('check-for-updates'); ipcRenderer.send('get-update-state'); };
+document.getElementById('workspace-create-btn').onclick = () => {
+  const input = document.getElementById('workspace-name-input');
+  const name = input.value.trim() || 'Workspace mới';
+  workspaceState = ipcRenderer.sendSync('workspace-create', name);
+  workspaceData = normalizeWorkspaceData(workspaceState.data);
+  profiles = normalizeProfiles(workspaceData.profiles);
+  activeProfileId = profiles[0]?.id || null;
+  input.value = '';
+  trackEvent('workspace_created', { name });
+  renderAll();
+  if (activeProfileId) switchProfile(activeProfileId);
+};
+
+document.getElementById('crm-search').addEventListener('input', renderCRMList);
+document.getElementById('crm-fill-current').onclick = () => {
+  if (!currentChatSnapshot) return alert('Chưa lấy được snapshot tab hiện tại.');
+  fillContactForm({ name: currentChatSnapshot.name || '', phone: '', status: 'new', tags: [currentChatSnapshot.platform || ''], note: `Imported từ ${currentChatSnapshot.platform || 'chat'}` });
+};
+document.getElementById('crm-save').onclick = saveContact;
+document.getElementById('crm-delete').onclick = deleteContact;
+
+document.getElementById('campaign-create').onclick = createCampaign;
+document.getElementById('campaign-run-active').onclick = () => {
+  if (!selectedCampaignId) return alert('Hãy chọn campaign trước.');
+  runCampaign(selectedCampaignId);
+};
+
+document.getElementById('quick-reply-add').onclick = addQuickReplyFromInput;
+document.getElementById('quick-reply-input').addEventListener('keydown', (e) => {
+  if (e.key === 'Enter' && !e.shiftKey) {
+    e.preventDefault();
+    addQuickReplyFromInput();
   }
 });
 
-let isDarkMode = true;
-const toggleDarkMode = () => {
+document.getElementById('ai-save-settings').onclick = saveAISettings;
+document.getElementById('ai-run').onclick = runAIRewrite;
+document.getElementById('ai-copy').onclick = () => {
+  clipboard.writeText(document.getElementById('ai-output').value || '');
+  document.getElementById('ai-status').innerText = 'Đã copy';
+};
+document.getElementById('ai-save-quick-reply').onclick = () => {
+  const text = document.getElementById('ai-output').value.trim();
+  if (!text) return;
+  workspaceData.quickReplies.push({ message: text });
+  persistWorkspace();
+  trackEvent('quick_reply_created_from_ai', {});
+  renderQuickReplies();
+  document.getElementById('ai-status').innerText = 'Đã lưu vào quick replies';
+};
+
+document.getElementById('btn-dark-mode').onclick = () => {
   isDarkMode = !isDarkMode;
   document.body.className = isDarkMode ? 'dark-mode' : 'light-mode';
   document.getElementById('icon-sun').style.display = isDarkMode ? 'none' : 'block';
   document.getElementById('icon-moon').style.display = isDarkMode ? 'block' : 'none';
   ipcRenderer.send('set-theme', isDarkMode);
 };
-document.getElementById('btn-dark-mode').onclick = toggleDarkMode;
 document.getElementById('btn-zoom-in').onclick = () => ipcRenderer.send('zoom-in');
 document.getElementById('btn-zoom-out').onclick = () => ipcRenderer.send('zoom-out');
 document.getElementById('btn-fs').onclick = () => ipcRenderer.send('toggle-fullscreen');
-document.getElementById('btn-pin').onclick = () => { const btn = document.getElementById('btn-pin'); const isPinned = btn.classList.toggle('active'); btn.style.opacity = isPinned ? '1' : '0.65'; ipcRenderer.send('toggle-always-on-top'); };
+document.getElementById('btn-pin').onclick = () => { document.getElementById('btn-pin').classList.toggle('active'); ipcRenderer.send('toggle-always-on-top'); };
 document.getElementById('btn-reload').onclick = () => ipcRenderer.send('reload-page');
 document.getElementById('btn-shield').onclick = () => ipcRenderer.send('toggle-zadark-shield');
 document.getElementById('btn-lock').onclick = () => ipcRenderer.send('lock-app');
-
-// Quick Replies Management
-let quickReplies = ipcRenderer.sendSync('get-quick-replies') || [];
-
-function renderQuickReplies() {
-  const list = document.getElementById('quick-replies-list');
-  if (!quickReplies.length) {
-    list.innerHTML = '<p class="download-meta" style="text-align:center;padding:20px 0;">Chưa có tin nhắn mẫu nào.<br>Thêm tin nhắn bên dưới để bắt đầu!</p>';
-    return;
-  }
-  list.innerHTML = '';
-  quickReplies.forEach((r, i) => {
-    const item = document.createElement('div');
-    item.className = 'download-item';
-    item.style.cssText = 'display:flex;align-items:flex-start;gap:12px;padding:12px;';
-    item.innerHTML = `<div style="flex-shrink:0;background:linear-gradient(135deg,#0a84ff,#5e5ce6);color:white;width:36px;height:36px;border-radius:10px;display:flex;align-items:center;justify-content:center;font-weight:800;font-size:14px;font-family:monospace;">/${i + 1}</div><div style="flex:1;min-width:0;"><div class="download-name" style="margin-bottom:4px;">${escapeHtml(r.message).substring(0, 100)}${r.message.length > 100 ? '...' : ''}</div><div class="download-meta">${r.message.length} ký tự</div></div><div style="display:flex;gap:6px;flex-shrink:0;"><button class="modal-btn cancel" data-action="edit" style="padding:6px 10px;font-size:12px;">✏️</button><button class="modal-btn cancel" data-action="delete" style="padding:6px 10px;font-size:12px;background:rgba(255,69,58,.2);color:#ff453a;">🗑</button></div>`;
-    item.querySelector('[data-action="edit"]').onclick = () => {
-      const newMsg = prompt('Sửa tin nhắn mẫu:', r.message);
-      if (newMsg !== null && newMsg.trim()) {
-        quickReplies[i].message = newMsg.trim();
-        ipcRenderer.send('save-quick-replies', quickReplies);
-        renderQuickReplies();
-      }
-    };
-    item.querySelector('[data-action="delete"]').onclick = () => {
-      if (confirm(`Xóa tin nhắn mẫu /${i + 1}?`)) {
-        quickReplies.splice(i, 1);
-        ipcRenderer.send('save-quick-replies', quickReplies);
-        renderQuickReplies();
-      }
-    };
-    list.appendChild(item);
-  });
-}
-
-document.getElementById('btn-quick-replies').onclick = () => {
-  ipcRenderer.send('set-browserview-visibility', false);
-  quickReplies = ipcRenderer.sendSync('get-quick-replies') || [];
-  renderQuickReplies();
-  document.getElementById('quick-replies-overlay').style.display = 'flex';
-};
-document.getElementById('quick-replies-close').onclick = () => {
-  document.getElementById('quick-replies-overlay').style.display = 'none';
-  ipcRenderer.send('set-browserview-visibility', true);
-};
-document.getElementById('quick-reply-add').onclick = () => {
-  const input = document.getElementById('quick-reply-input');
-  const msg = input.value.trim();
-  if (!msg) return alert('Vui lòng nhập nội dung tin nhắn mẫu!');
-  quickReplies.push({ message: msg });
-  ipcRenderer.send('save-quick-replies', quickReplies);
-  renderQuickReplies();
-  input.value = '';
-};
-document.getElementById('quick-reply-input').addEventListener('keydown', (e) => {
-  if (e.key === 'Enter' && !e.shiftKey) {
-    e.preventDefault();
-    document.getElementById('quick-reply-add').click();
-  }
-});
+document.getElementById('update-check').onclick = () => ipcRenderer.send('check-for-updates');
+document.getElementById('update-download').onclick = () => ipcRenderer.send('download-update');
+document.getElementById('update-install').onclick = () => ipcRenderer.send('install-update');
 
 function showLockOverlay(setupMode = false) {
   appLocked = true;
-  ipcRenderer.send('set-browserview-visibility', false);
-  document.getElementById('lock-overlay').style.display = 'flex';
+  openOverlay('lock-overlay');
   document.getElementById('lock-password-confirm').style.display = setupMode ? 'block' : 'none';
   document.getElementById('lock-hint').innerText = setupMode ? 'Tạo mật khẩu khóa ứng dụng.' : 'Nhập mật khẩu để mở khóa.';
   document.getElementById('lock-submit').innerText = setupMode ? 'Tạo khóa' : 'Mở khóa';
   document.getElementById('lock-password').value = '';
   document.getElementById('lock-password-confirm').value = '';
-  document.getElementById('lock-password').focus();
 }
-function hideLockOverlay() { appLocked = false; document.getElementById('lock-overlay').style.display = 'none'; ipcRenderer.send('set-browserview-visibility', true); }
+function hideLockOverlay() {
+  appLocked = false;
+  closeOverlay('lock-overlay');
+}
 document.getElementById('lock-submit').onclick = () => {
   const password = document.getElementById('lock-password').value;
   const confirmPassword = document.getElementById('lock-password-confirm').value;
   if (!hasLockPassword) {
     if (!password || password !== confirmPassword) return alert('Mật khẩu không khớp.');
     ipcRenderer.send('set-lock-password', password);
-  } else {
-    ipcRenderer.send('unlock-app', password);
-  }
+  } else ipcRenderer.send('unlock-app', password);
 };
+document.getElementById('lock-password').addEventListener('keydown', (e) => { if (e.key === 'Enter') document.getElementById('lock-submit').click(); });
+document.getElementById('lock-password-confirm').addEventListener('keydown', (e) => { if (e.key === 'Enter') document.getElementById('lock-submit').click(); });
 
 document.addEventListener('keydown', (e) => {
-  // Ctrl+L (Win/Linux) or Cmd+L (Mac) to lock app
   if ((e.ctrlKey || e.metaKey) && e.key.toLowerCase() === 'l') {
     e.preventDefault();
     ipcRenderer.send('lock-app');
   }
-  
-  // Escape to cancel lock setup
-  if (e.key === 'Escape' && appLocked && !hasLockPassword) {
-    e.preventDefault();
-    hideLockOverlay();
-  }
 });
 
-// Enter to submit lock password
-document.getElementById('lock-password').addEventListener('keydown', (e) => {
-  if (e.key === 'Enter') document.getElementById('lock-submit').click();
-});
-document.getElementById('lock-password-confirm').addEventListener('keydown', (e) => {
-  if (e.key === 'Enter') document.getElementById('lock-submit').click();
-});
+ipcRenderer.on('downloads-list', (_, list) => { downloads = list || []; renderDownloads(); });
+ipcRenderer.on('download-updated', (_, item) => { downloads = downloads.filter((entry) => entry.id !== item.id).concat(item); renderDownloads(); renderDashboard(); });
+ipcRenderer.on('update-state', (_, state) => { updateState = state; renderUpdate(); if (state.status === 'available' || state.status === 'downloaded') openOverlay('update-overlay'); });
 ipcRenderer.on('lock-state', (_, state) => {
   hasLockPassword = !!state.hasPassword;
-  if (state.zadarkShield !== undefined) document.getElementById('btn-shield').classList.toggle('active', !!state.zadarkShield);
+  document.getElementById('btn-shield').classList.toggle('active', !!state.zadarkShield);
   if (state.locked) showLockOverlay(!hasLockPassword);
 });
 ipcRenderer.on('unlock-result', (_, result) => { if (result.ok) { hasLockPassword = true; hideLockOverlay(); } else alert(result.message || 'Sai mật khẩu.'); });
-
-ipcRenderer.on('update-profile-badge', (event, { id, count }) => {
+ipcRenderer.on('update-profile-badge', (_, { id, count }) => {
   const badge = document.getElementById(`badge-${id}`);
-  if (badge) { badge.innerText = count > 9 ? '9+' : count; badge.style.display = count > 0 ? 'block' : 'none'; }
-});
-ipcRenderer.on('update-profile-avatar', (event, { id, avatarUrl }) => {
-  const p = profiles.find(x => x.id === id);
-  if (p) {
-    const isAutoAvatar = !p.avatar || p.avatar.includes('graph.facebook.com') || p.avatar.includes('scontent') || p.avatar.includes('fbcdn');
-    if (isAutoAvatar && p.avatar !== avatarUrl) { p.avatar = avatarUrl; saveProfiles(); renderSidebar(); }
+  if (badge) {
+    badge.innerText = count > 9 ? '9+' : count;
+    badge.style.display = count > 0 ? 'flex' : 'none';
   }
 });
-ipcRenderer.on('update-profile-info', (event, { id, name, avatarUrl }) => {
-  const p = profiles.find(x => x.id === id);
-  if (p) {
-    let changed = false;
-    if (name && p.name.startsWith('Tài khoản ')) { p.name = name; changed = true; }
-    if (avatarUrl && !p.avatar) { p.avatar = avatarUrl; changed = true; }
-    if (changed) { saveProfiles(); renderSidebar(); }
+ipcRenderer.on('update-profile-info', (_, payload) => {
+  const profile = profiles.find((entry) => entry.id === payload.id);
+  if (!profile) return;
+  let changed = false;
+  if (payload.name && profile.name.startsWith('Tài khoản')) { profile.name = payload.name; changed = true; }
+  if (payload.avatarUrl && !profile.avatar) { profile.avatar = payload.avatarUrl; changed = true; }
+  if (changed) {
+    persistWorkspace();
+    renderSidebar();
   }
+});
+ipcRenderer.on('current-chat-info', (_, info) => {
+  currentChatSnapshot = info;
+  renderCRMCurrentChat();
 });
 
 const settings = ipcRenderer.sendSync('get-settings');
@@ -360,55 +764,29 @@ hasLockPassword = !!settings.hasLockPassword;
 document.body.className = isDarkMode ? 'dark-mode' : 'light-mode';
 document.getElementById('icon-sun').style.display = isDarkMode ? 'none' : 'block';
 document.getElementById('icon-moon').style.display = isDarkMode ? 'block' : 'none';
-if (settings.alwaysOnTop) document.getElementById('btn-pin').classList.add('active');
+document.getElementById('btn-pin').classList.toggle('active', !!settings.alwaysOnTop);
 document.getElementById('btn-shield').classList.toggle('active', !!settings.zadarkShield);
-renderSidebar();
-switchProfile(activeProfileId);
-ipcRenderer.send('renderer-ready');
-if (settings.lockOnStartup) showLockOverlay(!hasLockPassword);
 
-// ==========================================
-// LICENSE & AUTHENTICATION (9Meta API)
-// ==========================================
 const API_BASE_URL = localStorage.getItem('API_URL') || 'https://api.tiodev.io.vn/v1';
 let accessToken = localStorage.getItem('access_token') || null;
-
 const authOverlay = document.getElementById('auth-overlay');
 const expiredOverlay = document.getElementById('expired-overlay');
 const authSubmit = document.getElementById('auth-submit');
 const authError = document.getElementById('auth-error');
-
-function showAuth() {
-  ipcRenderer.send('set-browserview-visibility', false);
-  authOverlay.style.display = 'flex';
-  expiredOverlay.style.display = 'none';
-}
-
+function showAuth() { ipcRenderer.send('set-browserview-visibility', false); authOverlay.style.display = 'flex'; expiredOverlay.style.display = 'none'; }
 function showExpired(message, upgradeUrl) {
   ipcRenderer.send('set-browserview-visibility', false);
   expiredOverlay.style.display = 'flex';
   authOverlay.style.display = 'none';
   if (message) document.getElementById('expired-message').innerText = message;
-  if (upgradeUrl) {
-    const btn = document.getElementById('expired-upgrade');
-    btn.onclick = () => require('electron').shell.openExternal(upgradeUrl);
-  }
+  if (upgradeUrl) document.getElementById('expired-upgrade').onclick = () => shell.openExternal(upgradeUrl);
 }
-
 function unlockAppFromAuth() {
   authOverlay.style.display = 'none';
   expiredOverlay.style.display = 'none';
-  ipcRenderer.send('set-browserview-visibility', true);
+  if (!appLocked) ipcRenderer.send('set-browserview-visibility', true);
   if (activeProfileId) switchProfile(activeProfileId);
 }
-
-document.getElementById('auth-email').addEventListener('keydown', (e) => {
-  if (e.key === 'Enter') authSubmit.click();
-});
-document.getElementById('auth-password').addEventListener('keydown', (e) => {
-  if (e.key === 'Enter') authSubmit.click();
-});
-
 authSubmit.onclick = async () => {
   const email = document.getElementById('auth-email').value.trim();
   const password = document.getElementById('auth-password').value;
@@ -417,21 +795,17 @@ authSubmit.onclick = async () => {
     authError.style.display = 'block';
     return;
   }
-  
   authSubmit.innerText = 'Đang đăng nhập...';
   authSubmit.disabled = true;
   authError.style.display = 'none';
-
   try {
     const res = await fetch(`${API_BASE_URL}/auth/login`, {
       method: 'POST',
       headers: { 'Content-Type': 'application/json' },
-      body: JSON.stringify({ email, password, appVersion: require('./package.json').version, os: process.platform })
+      body: JSON.stringify({ email, password, appVersion: require('./package.json').version, os: process.platform }),
     });
     const data = await res.json();
-    
     if (!res.ok) throw new Error(data.message || 'Đăng nhập thất bại');
-    
     accessToken = data.accessToken;
     localStorage.setItem('access_token', accessToken);
     checkSubscription();
@@ -443,51 +817,30 @@ authSubmit.onclick = async () => {
     authSubmit.disabled = false;
   }
 };
-
-document.getElementById('expired-logout').onclick = () => {
-  localStorage.removeItem('access_token');
-  accessToken = null;
-  expiredOverlay.style.display = 'none';
-  showAuth();
-};
-
+document.getElementById('expired-logout').onclick = () => { localStorage.removeItem('access_token'); accessToken = null; expiredOverlay.style.display = 'none'; showAuth(); };
 async function checkSubscription() {
   if (!accessToken) return showAuth();
-  
   try {
-    const res = await fetch(`${API_BASE_URL}/me/subscription`, {
-      headers: { 'Authorization': `Bearer ${accessToken}` }
-    });
-    
+    const res = await fetch(`${API_BASE_URL}/me/subscription`, { headers: { Authorization: `Bearer ${accessToken}` } });
     if (res.status === 401 || res.status === 403) {
       localStorage.removeItem('access_token');
       accessToken = null;
       return showAuth();
     }
-    
     const data = await res.json();
-    
-    if (data.isActive === false) {
-      showExpired(
-        'Gói đăng ký của bạn đã hết hạn. Vui lòng thanh toán gia hạn để tiếp tục sử dụng.', 
-        data.upgradeUrl || 'https://tiodev.io.vn/pricing'
-      );
-    } else {
-      // Đang active, mở khóa app
-      unlockAppFromAuth();
-    }
+    if (data.isActive === false) showExpired('Gói đăng ký của bạn đã hết hạn. Vui lòng thanh toán gia hạn để tiếp tục sử dụng.', data.upgradeUrl || 'https://tiodev.io.vn/pricing');
+    else unlockAppFromAuth();
   } catch (err) {
     console.error('Lỗi kiểm tra bản quyền:', err);
-    // Nếu lỗi mạng, có thể du di cho dùng offline tạm, hoặc chặn cứng. Ở đây tạm cho qua nếu lỗi mạng để khỏi phiền người dùng.
-    unlockAppFromAuth(); 
+    unlockAppFromAuth();
   }
 }
 
-// Khởi chạy kiểm tra ngay khi mở app
-if (!settings.lockOnStartup) {
-  checkSubscription();
-}
-// Kiểm tra định kỳ 15 phút một lần
-setInterval(() => {
-  if (accessToken && !appLocked) checkSubscription();
-}, 15 * 60 * 1000);
+migrateLegacyProfiles();
+renderAll();
+if (activeProfileId) switchProfile(activeProfileId);
+ipcRenderer.send('renderer-ready');
+ipcRenderer.send('get-downloads');
+if (settings.lockOnStartup) showLockOverlay(!hasLockPassword);
+if (!settings.lockOnStartup) checkSubscription();
+setInterval(() => { if (accessToken && !appLocked) checkSubscription(); }, 15 * 60 * 1000);

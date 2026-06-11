@@ -3,57 +3,89 @@
 
 <head>
   <meta charset="utf-8">
-  <meta name="description"
-    content="9Meta - Quản lý đa tài khoản Zalo, Messenger, Fanpage, Telegram, WhatsApp trên Desktop.">
-  <title>9Meta</title>
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <meta name="description" content="9Meta - Quản lý đa tài khoản Zalo, Messenger, Fanpage, Telegram, WhatsApp trên Desktop với CRM, Campaign, AI và Analytics.">
+  <title>9Meta Control Center</title>
   <style>
     :root {
-      --sidebar: 56px;
-      --blue: #0a84ff;
-      --glass: rgba(18, 18, 24, .72);
-      --line: rgba(255, 255, 255, .09);
+      --sidebar: 72px;
+      --bg: #08111f;
+      --panel: rgba(11, 18, 34, .78);
+      --panel-soft: rgba(255, 255, 255, .06);
+      --line: rgba(255, 255, 255, .1);
+      --text: #eef4ff;
+      --muted: #8ea2c8;
+      --primary: #6ea8ff;
+      --primary-2: #7c5cff;
+      --success: #30d158;
+      --danger: #ff5c7c;
+      --warning: #ffb84d;
+      --shadow: 0 24px 80px rgba(0, 0, 0, .45);
     }
 
-    * {
-      box-sizing: border-box;
-    }
-
-    body,
-    html {
+    * { box-sizing: border-box; }
+    html, body {
       margin: 0;
       padding: 0;
       height: 100%;
       overflow: hidden;
-      background: #0d0f14;
-      color: white;
-      font-family: 'Inter', -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, Helvetica, Arial, sans-serif;
+      font-family: Inter, -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, Arial, sans-serif;
+      background:
+        radial-gradient(circle at top left, rgba(84, 123, 255, .22), transparent 30%),
+        radial-gradient(circle at top right, rgba(124, 92, 255, .16), transparent 26%),
+        linear-gradient(180deg, #0b1220, #060b14 68%);
+      color: var(--text);
+    }
+    body.light-mode {
+      --bg: #eef4ff;
+      --panel: rgba(255, 255, 255, .84);
+      --panel-soft: rgba(8, 22, 46, .05);
+      --line: rgba(8, 22, 46, .08);
+      --text: #17253d;
+      --muted: #64748b;
+      --shadow: 0 24px 60px rgba(66, 92, 140, .16);
+      background:
+        radial-gradient(circle at top left, rgba(110, 168, 255, .28), transparent 34%),
+        radial-gradient(circle at top right, rgba(124, 92, 255, .18), transparent 28%),
+        linear-gradient(180deg, #f8fbff, #edf3fb 68%);
     }
 
-    body.light-mode {
-      background: #f3f6fb;
-      color: #151922;
+    #app-shell {
+      display: grid;
+      grid-template-columns: var(--sidebar) 1fr;
+      height: 100%;
+      position: relative;
     }
 
     #sidebar {
-      width: var(--sidebar);
       height: 100%;
-      background: linear-gradient(180deg, rgba(20, 22, 32, .86), rgba(8, 10, 16, .78));
-      backdrop-filter: blur(18px);
-      -webkit-backdrop-filter: blur(18px);
+      backdrop-filter: blur(22px);
+      -webkit-backdrop-filter: blur(22px);
+      background: linear-gradient(180deg, rgba(9, 14, 26, .92), rgba(10, 18, 31, .72));
       border-right: 1px solid var(--line);
       display: flex;
       flex-direction: column;
       align-items: center;
       padding: 14px 0 10px;
-      z-index: 100;
-      position: relative;
-      box-shadow: 4px 0 26px rgba(0, 0, 0, .28);
+      box-shadow: 8px 0 40px rgba(0, 0, 0, .25);
+      z-index: 5;
+    }
+    body.light-mode #sidebar {
+      background: linear-gradient(180deg, rgba(255, 255, 255, .86), rgba(244, 248, 255, .82));
     }
 
-    body.light-mode #sidebar {
-      background: rgba(255, 255, 255, .82);
-      border-right: 1px solid rgba(0, 0, 0, .06);
-      box-shadow: 4px 0 22px rgba(30, 50, 90, .08);
+    #brand-badge {
+      width: 48px;
+      height: 48px;
+      border-radius: 18px;
+      display: grid;
+      place-items: center;
+      color: white;
+      font-weight: 900;
+      letter-spacing: .6px;
+      background: linear-gradient(135deg, var(--primary), var(--primary-2));
+      box-shadow: 0 16px 30px rgba(90, 117, 255, .35);
+      margin-bottom: 14px;
     }
 
     #profiles-list {
@@ -64,414 +96,443 @@
       gap: 10px;
       overflow-y: auto;
       scrollbar-width: none;
+      padding-bottom: 8px;
     }
+    #profiles-list::-webkit-scrollbar { display: none; }
 
-    #profiles-list::-webkit-scrollbar {
-      display: none;
-    }
-
-    .profile-btn {
-      width: 40px;
-      height: 40px;
-      border-radius: 15px;
-      cursor: pointer;
-      border: 1px solid rgba(255, 255, 255, .08);
-      background: linear-gradient(135deg, #272b35, #151821);
-      color: #f0f4ff;
-      font-weight: 700;
-      display: flex;
-      justify-content: center;
-      align-items: center;
-      font-size: 16px;
+    .profile-btn, .tool-btn {
       position: relative;
-      transition: all .25s cubic-bezier(.34, 1.56, .64, 1);
-      box-shadow: 0 6px 16px rgba(0, 0, 0, .22);
-      flex-shrink: 0;
+      border: 0;
+      cursor: pointer;
+      transition: transform .2s ease, box-shadow .2s ease, background .2s ease;
+    }
+    .profile-btn {
+      width: 46px;
+      height: 46px;
+      border-radius: 18px;
+      background: linear-gradient(135deg, rgba(255,255,255,.1), rgba(255,255,255,.04));
+      border: 1px solid rgba(255,255,255,.08);
+      color: var(--text);
+      display: flex;
+      align-items: center;
+      justify-content: center;
+      font-weight: 800;
       overflow: hidden;
+      box-shadow: 0 12px 28px rgba(0, 0, 0, .22);
     }
-
     body.light-mode .profile-btn {
-      background: linear-gradient(135deg, #fff, #eef3fb);
-      color: #273044;
-      box-shadow: 0 6px 14px rgba(35, 55, 90, .1);
+      background: linear-gradient(135deg, rgba(255,255,255,.95), rgba(241,245,255,.96));
+      border-color: rgba(16, 30, 60, .08);
     }
-
-    .profile-btn:hover {
-      transform: translateY(-2px) scale(1.06);
-      border-color: rgba(10, 132, 255, .6);
-      box-shadow: 0 10px 24px rgba(10, 132, 255, .22);
-    }
-
+    .profile-btn:hover, .tool-btn:hover { transform: translateY(-2px) scale(1.04); }
     .profile-btn.active {
-      border-color: #65b7ff;
-      background: linear-gradient(135deg, #0a84ff, #5e5ce6);
-      color: white;
-      box-shadow: 0 0 18px rgba(10, 132, 255, .46);
+      background: linear-gradient(135deg, var(--primary), var(--primary-2));
+      color: #fff;
+      box-shadow: 0 0 0 1px rgba(255,255,255,.08), 0 14px 34px rgba(98, 112, 255, .4);
     }
-
     .badge {
       position: absolute;
       top: -4px;
-      right: -4px;
-      min-width: 16px;
-      height: 16px;
-      background: linear-gradient(135deg, #ff375f, #ff7a45);
-      color: white;
+      right: -5px;
+      min-width: 17px;
+      height: 17px;
       border-radius: 999px;
-      font-size: 9px;
-      padding: 2px 4px;
+      padding: 0 4px;
       display: none;
+      align-items: center;
+      justify-content: center;
+      background: linear-gradient(135deg, #ff496d, #ff8744);
+      color: #fff;
+      font-size: 9px;
       font-weight: 800;
-      border: 2px solid #121620;
+      border: 2px solid #0f1624;
     }
-
-    .sidebar-spacer {
-      flex: 1;
-      min-height: 8px;
-    }
-
+    .sidebar-spacer { flex: 1; }
     .tool-btn {
-      width: 36px;
-      height: 36px;
-      border-radius: 13px;
+      width: 42px;
+      height: 42px;
+      margin-bottom: 6px;
+      border-radius: 16px;
       background: transparent;
-      border: 0;
-      cursor: pointer;
+      color: var(--muted);
       display: flex;
       align-items: center;
       justify-content: center;
-      transition: all .22s ease;
-      color: #a3a8b8;
-      margin-bottom: 4px;
-      padding: 0;
-      position: relative;
     }
-
-    .tool-btn:hover,
-    .tool-btn.active {
-      background: rgba(255, 255, 255, .12);
+    .tool-btn:hover, .tool-btn.active {
       color: #fff;
-      transform: scale(1.06);
+      background: rgba(255,255,255,.08);
+      box-shadow: inset 0 0 0 1px rgba(255,255,255,.08);
     }
-
-    body.light-mode .tool-btn {
-      color: #667085;
+    body.light-mode .tool-btn:hover, body.light-mode .tool-btn.active {
+      color: #0f2c58;
+      background: rgba(16, 30, 60, .06);
     }
-
-    body.light-mode .tool-btn:hover,
-    body.light-mode .tool-btn.active {
-      background: rgba(10, 132, 255, .1);
-      color: #0a64d8;
-    }
-
-    .tool-btn svg {
-      width: 19px;
-      height: 19px;
-      stroke: currentColor;
-      fill: none;
-      stroke-width: 2.2;
-      stroke-linecap: round;
-      stroke-linejoin: round;
-    }
-
+    .tool-btn svg { width: 19px; height: 19px; stroke: currentColor; fill: none; stroke-width: 2.1; stroke-linecap: round; stroke-linejoin: round; }
     #btn-add-profile {
-      border: 1.5px dashed rgba(255, 255, 255, .24);
-      background: rgba(255, 255, 255, .04);
-      color: #a3a8b8;
       margin-top: 10px;
-    }
-
-    #btn-add-profile:hover {
-      border-color: #0a84ff;
-      color: #0a84ff;
-      background: rgba(10, 132, 255, .14);
-      transform: scale(1.07) rotate(90deg);
+      border: 1.5px dashed rgba(255,255,255,.2);
+      background: rgba(255,255,255,.04);
     }
 
     .overlay {
       display: none;
       position: fixed;
       inset: 0;
-      background: rgba(0, 0, 0, .58);
-      backdrop-filter: blur(10px);
-      -webkit-backdrop-filter: blur(10px);
-      z-index: 9999;
-      justify-content: center;
+      z-index: 99;
+      background: rgba(3, 8, 17, .62);
+      backdrop-filter: blur(14px);
+      -webkit-backdrop-filter: blur(14px);
       align-items: center;
-      animation: fadeIn .22s ease;
+      justify-content: center;
+      padding: 28px;
+      animation: fadeIn .18s ease;
     }
+    @keyframes fadeIn { from { opacity: 0; } to { opacity: 1; } }
 
-    @keyframes fadeIn {
-      from {
-        opacity: 0
-      }
-
-      to {
-        opacity: 1
-      }
-    }
-
-    .modal-box,
-    .panel-box {
-      background: linear-gradient(180deg, rgba(28, 31, 43, .92), rgba(14, 16, 24, .94));
-      padding: 26px;
-      border-radius: 24px;
-      width: 360px;
-      max-height: 86vh;
+    .modal-box, .panel-box {
+      width: 520px;
+      max-width: calc(100vw - 60px);
+      max-height: 88vh;
       overflow: auto;
-      box-shadow: 0 22px 70px rgba(0, 0, 0, .58);
-      color: white;
-      border: 1px solid rgba(255, 255, 255, .1);
-      backdrop-filter: blur(24px);
-      animation: pop .28s cubic-bezier(.34, 1.56, .64, 1);
+      border-radius: 28px;
+      padding: 24px;
+      background: linear-gradient(180deg, rgba(18, 27, 47, .94), rgba(10, 16, 29, .92));
+      border: 1px solid var(--line);
+      box-shadow: var(--shadow);
     }
-
-    .panel-box {
-      width: 430px;
+    .panel-box.wide { width: 940px; }
+    .panel-box.mid { width: 700px; }
+    body.light-mode .modal-box, body.light-mode .panel-box {
+      background: linear-gradient(180deg, rgba(255,255,255,.96), rgba(246,249,255,.94));
     }
-
-    @keyframes pop {
-      from {
-        transform: translateY(28px) scale(.94);
-        opacity: 0
-      }
-
-      to {
-        transform: none;
-        opacity: 1
-      }
-    }
-
-    body.light-mode .modal-box,
-    body.light-mode .panel-box {
-      background: rgba(255, 255, 255, .94);
-      color: #172033;
-      box-shadow: 0 22px 60px rgba(28, 48, 82, .15);
-      border: 1px solid rgba(0, 0, 0, .07);
-    }
-
-    .modal-input {
-      width: 100%;
-      padding: 13px 14px;
-      border-radius: 14px;
-      border: 1px solid rgba(255, 255, 255, .14);
-      background: rgba(0, 0, 0, .24);
-      color: inherit;
-      outline: none;
-      margin: 10px 0 18px;
-      font-size: 14px;
-      font-weight: 500;
-      font-family: inherit;
-    }
-
-    body.light-mode .modal-input {
-      background: rgba(10, 20, 40, .04);
-      border-color: rgba(0, 0, 0, .1);
-    }
-
-    .modal-input:focus {
-      border-color: #0a84ff;
-      box-shadow: 0 0 0 4px rgba(10, 132, 255, .15);
-    }
-
-    .modal-btn {
-      padding: 11px 18px;
-      border-radius: 12px;
-      border: 0;
-      cursor: pointer;
-      font-weight: 700;
-      font-size: 14px;
-      transition: all .22s ease;
-      font-family: inherit;
-    }
-
-    .modal-btn.cancel {
-      background: rgba(255, 255, 255, .1);
-      color: inherit;
-    }
-
-    .modal-btn.save {
-      background: linear-gradient(135deg, #0a84ff, #5e5ce6);
-      color: white;
-      margin-left: 10px;
-      box-shadow: 0 8px 18px rgba(10, 132, 255, .28);
-    }
-
-    .modal-btn:hover {
-      transform: translateY(-1px);
-      filter: brightness(1.08);
-    }
-
-    .panel-head {
+    .panel-head, .section-head, .row {
       display: flex;
-      justify-content: space-between;
       gap: 12px;
       align-items: center;
-      margin-bottom: 16px;
+      justify-content: space-between;
     }
+    .panel-title, .section-title { margin: 0; }
+    .panel-title { font-size: 22px; }
+    .section-title { font-size: 15px; letter-spacing: .2px; }
 
-    .panel-title {
-      margin: 0;
-      font-size: 20px;
-    }
-
-    .download-item {
-      padding: 12px;
-      border: 1px solid rgba(255, 255, 255, .09);
+    .modal-input, .modal-select, .modal-textarea {
+      width: 100%;
       border-radius: 16px;
-      margin-bottom: 10px;
-      background: rgba(255, 255, 255, .05);
+      border: 1px solid var(--line);
+      background: rgba(255,255,255,.05);
+      color: inherit;
+      padding: 13px 14px;
+      font: inherit;
+      outline: none;
+      margin-top: 10px;
     }
-
-    body.light-mode .download-item {
-      border-color: rgba(0, 0, 0, .07);
-      background: rgba(10, 30, 60, .04);
+    body.light-mode .modal-input, body.light-mode .modal-select, body.light-mode .modal-textarea { background: rgba(10,20,40,.04); }
+    .modal-input:focus, .modal-select:focus, .modal-textarea:focus { border-color: var(--primary); box-shadow: 0 0 0 4px rgba(110,168,255,.16); }
+    .modal-textarea { min-height: 110px; resize: vertical; }
+    .modal-btn {
+      border: 0;
+      border-radius: 14px;
+      padding: 11px 16px;
+      cursor: pointer;
+      font-weight: 700;
+      color: inherit;
+      transition: transform .18s ease, filter .18s ease;
+      font-family: inherit;
     }
-
-    .download-name {
-      font-weight: 800;
-      font-size: 13px;
-      word-break: break-word;
+    .modal-btn:hover { transform: translateY(-1px); filter: brightness(1.04); }
+    .modal-btn.cancel { background: rgba(255,255,255,.08); }
+    body.light-mode .modal-btn.cancel { background: rgba(12,30,60,.08); }
+    .modal-btn.save {
+      color: #fff;
+      background: linear-gradient(135deg, var(--primary), var(--primary-2));
+      box-shadow: 0 12px 24px rgba(91, 111, 255, .28);
     }
+    .modal-btn.warn { background: rgba(255, 92, 124, .16); color: #ff7d97; }
 
-    .download-meta {
-      color: #9aa3b8;
-      font-size: 12px;
-      margin: 5px 0 8px;
+    .grid-2, .grid-3, .stats-grid {
+      display: grid;
+      gap: 14px;
     }
+    .grid-2 { grid-template-columns: repeat(2, minmax(0, 1fr)); }
+    .grid-3, .stats-grid { grid-template-columns: repeat(3, minmax(0, 1fr)); }
 
-    .progress {
-      height: 7px;
-      background: rgba(255, 255, 255, .1);
-      border-radius: 999px;
+    .card, .download-item, .workspace-item, .contact-item, .campaign-item, .ai-result, .activity-item {
+      border-radius: 20px;
+      border: 1px solid var(--line);
+      background: rgba(255,255,255,.05);
+      padding: 14px;
+    }
+    body.light-mode .card,
+    body.light-mode .download-item,
+    body.light-mode .workspace-item,
+    body.light-mode .contact-item,
+    body.light-mode .campaign-item,
+    body.light-mode .ai-result,
+    body.light-mode .activity-item { background: rgba(10, 24, 46, .04); }
+
+    .metric-card {
+      padding: 16px;
+      border-radius: 22px;
+      border: 1px solid var(--line);
+      background: linear-gradient(180deg, rgba(255,255,255,.08), rgba(255,255,255,.04));
+      min-height: 120px;
+      position: relative;
       overflow: hidden;
     }
-
-    .progress>span {
-      display: block;
-      height: 100%;
-      background: linear-gradient(90deg, #0a84ff, #30d158);
-      width: 0%;
-      transition: width .2s;
+    .metric-card::after {
+      content: '';
+      position: absolute;
+      inset: auto -10% -40% 40%;
+      height: 100px;
+      background: radial-gradient(circle, rgba(110,168,255,.22), transparent 60%);
     }
+    .metric-label { font-size: 12px; color: var(--muted); margin-bottom: 12px; }
+    .metric-value { font-size: 34px; font-weight: 900; letter-spacing: -.8px; }
+    .metric-foot { font-size: 12px; color: var(--muted); margin-top: 10px; }
 
-    .row {
-      display: flex;
-      justify-content: space-between;
+    .chip-row, .tag-list, .status-row { display: flex; flex-wrap: wrap; gap: 8px; }
+    .chip {
+      border-radius: 999px;
+      padding: 6px 10px;
+      background: rgba(110,168,255,.12);
+      color: #8fc0ff;
+      font-size: 12px;
+      font-weight: 700;
+      border: 1px solid rgba(110,168,255,.16);
+    }
+    .chip.hot { background: rgba(255, 184, 77, .14); color: #ffc56d; }
+    .chip.danger { background: rgba(255, 92, 124, .14); color: #ff8aa0; }
+    .chip.success { background: rgba(48, 209, 88, .14); color: #68e58c; }
+
+    .list-scroll { max-height: 380px; overflow: auto; padding-right: 4px; }
+    .empty-state { text-align: center; color: var(--muted); padding: 24px 10px; }
+    .download-meta, .muted, .subtle { color: var(--muted); font-size: 12px; }
+    .title-lg { font-size: 18px; font-weight: 800; }
+    .title-sm { font-size: 14px; font-weight: 700; }
+    .progress { height: 8px; border-radius: 999px; background: rgba(255,255,255,.08); overflow: hidden; }
+    .progress > span { display: block; height: 100%; width: 0%; background: linear-gradient(90deg, var(--primary), var(--success)); }
+    .pill {
+      display: inline-flex;
       align-items: center;
-      gap: 10px;
+      gap: 6px;
+      border-radius: 999px;
+      padding: 6px 10px;
+      font-size: 11px;
+      font-weight: 800;
+      background: rgba(255,255,255,.08);
     }
+    .pill.running { color: #8fe8a8; }
+    .pill.paused { color: #ffd47a; }
+    .pill.stopped, .pill.failed { color: #ff95a8; }
+    .pill.done { color: #7dc5ff; }
 
-    #lock-overlay {
-      background: radial-gradient(circle at top left, rgba(10, 132, 255, .24), transparent 35%), rgba(4, 6, 12, .82);
-    }
+    .form-grid { display: grid; grid-template-columns: repeat(2, minmax(0, 1fr)); gap: 12px; }
+    .mb-12 { margin-bottom: 12px; }
+    .mb-16 { margin-bottom: 16px; }
+    .mb-20 { margin-bottom: 20px; }
+    .mt-12 { margin-top: 12px; }
+    .w-full { width: 100%; }
 
-    #lock-overlay .modal-box {
-      text-align: center;
+    #lock-overlay .modal-box, #auth-overlay .modal-box, #expired-overlay .modal-box { width: 420px; text-align: center; }
+    code { background: rgba(110,168,255,.14); color: #8fc0ff; padding: 2px 6px; border-radius: 8px; }
+
+    @media (max-width: 920px) {
+      .grid-3, .stats-grid, .grid-2, .form-grid { grid-template-columns: 1fr; }
+      .panel-box.wide, .panel-box.mid { width: 100%; }
     }
   </style>
 </head>
 
 <body class="dark-mode">
-  <div id="sidebar">
-    <div id="profiles-list"></div>
-    <button class="profile-btn" id="btn-add-profile" title="Thêm tài khoản"><svg viewBox="0 0 24 24">
-        <line x1="12" y1="5" x2="12" y2="19" />
-        <line x1="5" y1="12" x2="19" y2="12" />
-      </svg></button>
-    <div class="sidebar-spacer"></div>
-    <button class="tool-btn" id="btn-lock" title="Khóa ứng dụng"><svg viewBox="0 0 24 24">
-        <rect x="3" y="11" width="18" height="11" rx="2" />
-        <path d="M7 11V7a5 5 0 0 1 10 0v4" />
-      </svg></button>
-    <button class="tool-btn" id="btn-shield" title="ZaDark Shield"><svg viewBox="0 0 24 24">
-        <path d="M12 22s8-4 8-10V5l-8-3-8 3v7c0 6 8 10 8 10z" />
-      </svg></button>
-    <button class="tool-btn" id="btn-dark-mode" title="Chế độ tối/sáng"><svg id="icon-moon" viewBox="0 0 24 24">
-        <path d="M21 12.79A9 9 0 1 1 11.21 3 7 7 0 0 0 21 12.79z" />
-      </svg><svg id="icon-sun" style="display:none;" viewBox="0 0 24 24">
-        <circle cx="12" cy="12" r="5" />
-        <line x1="12" y1="1" x2="12" y2="3" />
-        <line x1="12" y1="21" x2="12" y2="23" />
-        <line x1="4.22" y1="4.22" x2="5.64" y2="5.64" />
-        <line x1="18.36" y1="18.36" x2="19.78" y2="19.78" />
-        <line x1="1" y1="12" x2="3" y2="12" />
-        <line x1="21" y1="12" x2="23" y2="12" />
-      </svg></button>
-    <button class="tool-btn" id="btn-zoom-in" title="Phóng to"><svg viewBox="0 0 24 24">
-        <circle cx="11" cy="11" r="8" />
-        <line x1="21" y1="21" x2="16.65" y2="16.65" />
-        <line x1="11" y1="8" x2="11" y2="14" />
-        <line x1="8" y1="11" x2="14" y2="11" />
-      </svg></button>
-    <button class="tool-btn" id="btn-zoom-out" title="Thu nhỏ"><svg viewBox="0 0 24 24">
-        <circle cx="11" cy="11" r="8" />
-        <line x1="21" y1="21" x2="16.65" y2="16.65" />
-        <line x1="8" y1="11" x2="14" y2="11" />
-      </svg></button>
-    <button class="tool-btn" id="btn-fs" title="Toàn màn hình"><svg viewBox="0 0 24 24">
-        <polyline points="15 3 21 3 21 9" />
-        <polyline points="9 21 3 21 3 15" />
-        <line x1="21" y1="3" x2="14" y2="10" />
-        <line x1="3" y1="21" x2="10" y2="14" />
-      </svg></button>
-    <button class="tool-btn" id="btn-pin" title="Ghim cửa sổ"><svg viewBox="0 0 24 24">
-        <path d="M12 17v5" />
-        <path
-          d="M9 10.76a2 2 0 0 1-1.11 1.79l-1.78.9A2 2 0 0 0 5 15.24V17h14v-1.76a2 2 0 0 0-1.11-1.79l-1.78-.9A2 2 0 0 1 15 10.76V6a1 1 0 0 1 1-1h.5a.5.5 0 0 0 .5-.5v-1a.5.5 0 0 0-.5-.5h-9a.5.5 0 0 0-.5.5v1a.5.5 0 0 0 .5.5H8a1 1 0 0 1 1 1z" />
-      </svg></button>
-    <button class="tool-btn" id="btn-reload" title="Tải lại trang"><svg viewBox="0 0 24 24">
-        <polyline points="23 4 23 10 17 10" />
-        <path d="M20.49 15a9 9 0 1 1-2.12-9.36L23 10" />
-      </svg></button>
-    <button class="tool-btn" id="btn-quick-replies" title="Tin nhắn mẫu"><svg viewBox="0 0 24 24">
-        <path d="M21 15a2 2 0 0 1-2 2H7l-4 4V5a2 2 0 0 1 2-2h14a2 2 0 0 1 2 2z" />
-        <line x1="9" y1="10" x2="15" y2="10" />
-      </svg></button>
-    <button class="tool-btn" id="btn-update" title="Cập nhật"><svg viewBox="0 0 24 24">
-        <path d="M21 2v6h-6" />
-        <path d="M3 12a9 9 0 0 1 15-6.7L21 8" />
-        <path d="M3 22v-6h6" />
-        <path d="M21 12a9 9 0 0 1-15 6.7L3 16" />
-      </svg></button>
+  <div id="app-shell">
+    <div id="sidebar">
+      <div id="brand-badge">9M</div>
+      <div id="profiles-list"></div>
+      <button class="profile-btn" id="btn-add-profile" title="Thêm tài khoản">
+        <svg viewBox="0 0 24 24"><line x1="12" y1="5" x2="12" y2="19"></line><line x1="5" y1="12" x2="19" y2="12"></line></svg>
+      </button>
+      <div class="sidebar-spacer"></div>
+      <button class="tool-btn" id="btn-dashboard" title="Dashboard"><svg viewBox="0 0 24 24"><path d="M3 13h8V3H3z"></path><path d="M13 21h8v-6h-8z"></path><path d="M13 10h8V3h-8z"></path><path d="M3 21h8v-4H3z"></path></svg></button>
+      <button class="tool-btn" id="btn-workspaces" title="Workspace"><svg viewBox="0 0 24 24"><path d="M3 7l9-4 9 4-9 4-9-4z"></path><path d="M3 12l9 4 9-4"></path><path d="M3 17l9 4 9-4"></path></svg></button>
+      <button class="tool-btn" id="btn-crm" title="CRM"><svg viewBox="0 0 24 24"><path d="M17 21v-2a4 4 0 0 0-4-4H5a4 4 0 0 0-4 4v2"></path><circle cx="9" cy="7" r="4"></circle><path d="M23 21v-2a4 4 0 0 0-3-3.87"></path><path d="M16 3.13a4 4 0 0 1 0 7.75"></path></svg></button>
+      <button class="tool-btn" id="btn-campaigns" title="Campaign"><svg viewBox="0 0 24 24"><path d="M3 11l18-5v12L3 13z"></path><path d="M11 13.5V19a2 2 0 0 1-2 2H7"></path></svg></button>
+      <button class="tool-btn" id="btn-ai" title="AI Rewrite"><svg viewBox="0 0 24 24"><path d="M12 2v4"></path><path d="M12 18v4"></path><path d="M4.93 4.93l2.83 2.83"></path><path d="M16.24 16.24l2.83 2.83"></path><path d="M2 12h4"></path><path d="M18 12h4"></path><path d="M4.93 19.07l2.83-2.83"></path><path d="M16.24 7.76l2.83-2.83"></path><circle cx="12" cy="12" r="3"></circle></svg></button>
+      <button class="tool-btn" id="btn-lock" title="Khóa ứng dụng"><svg viewBox="0 0 24 24"><rect x="3" y="11" width="18" height="11" rx="2"></rect><path d="M7 11V7a5 5 0 0 1 10 0v4"></path></svg></button>
+      <button class="tool-btn" id="btn-shield" title="ZaDark Shield"><svg viewBox="0 0 24 24"><path d="M12 22s8-4 8-10V5l-8-3-8 3v7c0 6 8 10 8 10z"></path></svg></button>
+      <button class="tool-btn" id="btn-dark-mode" title="Chế độ tối/sáng"><svg id="icon-moon" viewBox="0 0 24 24"><path d="M21 12.79A9 9 0 1 1 11.21 3 7 7 0 0 0 21 12.79z"></path></svg><svg id="icon-sun" style="display:none;" viewBox="0 0 24 24"><circle cx="12" cy="12" r="5"></circle><line x1="12" y1="1" x2="12" y2="3"></line><line x1="12" y1="21" x2="12" y2="23"></line><line x1="4.22" y1="4.22" x2="5.64" y2="5.64"></line><line x1="18.36" y1="18.36" x2="19.78" y2="19.78"></line><line x1="1" y1="12" x2="3" y2="12"></line><line x1="21" y1="12" x2="23" y2="12"></line></svg></button>
+      <button class="tool-btn" id="btn-zoom-in" title="Phóng to"><svg viewBox="0 0 24 24"><circle cx="11" cy="11" r="8"></circle><line x1="21" y1="21" x2="16.65" y2="16.65"></line><line x1="11" y1="8" x2="11" y2="14"></line><line x1="8" y1="11" x2="14" y2="11"></line></svg></button>
+      <button class="tool-btn" id="btn-zoom-out" title="Thu nhỏ"><svg viewBox="0 0 24 24"><circle cx="11" cy="11" r="8"></circle><line x1="21" y1="21" x2="16.65" y2="16.65"></line><line x1="8" y1="11" x2="14" y2="11"></line></svg></button>
+      <button class="tool-btn" id="btn-fs" title="Toàn màn hình"><svg viewBox="0 0 24 24"><polyline points="15 3 21 3 21 9"></polyline><polyline points="9 21 3 21 3 15"></polyline><line x1="21" y1="3" x2="14" y2="10"></line><line x1="3" y1="21" x2="10" y2="14"></line></svg></button>
+      <button class="tool-btn" id="btn-pin" title="Ghim cửa sổ"><svg viewBox="0 0 24 24"><path d="M12 17v5"></path><path d="M9 10.76a2 2 0 0 1-1.11 1.79l-1.78.9A2 2 0 0 0 5 15.24V17h14v-1.76a2 2 0 0 0-1.11-1.79l-1.78-.9A2 2 0 0 1 15 10.76V6a1 1 0 0 1 1-1h.5a.5.5 0 0 0 .5-.5v-1a.5.5 0 0 0-.5-.5h-9a.5.5 0 0 0-.5.5v1a.5.5 0 0 0 .5.5H8a1 1 0 0 1 1 1z"></path></svg></button>
+      <button class="tool-btn" id="btn-reload" title="Tải lại trang"><svg viewBox="0 0 24 24"><polyline points="23 4 23 10 17 10"></polyline><path d="M20.49 15a9 9 0 1 1-2.12-9.36L23 10"></path></svg></button>
+      <button class="tool-btn" id="btn-quick-replies" title="Tin nhắn mẫu"><svg viewBox="0 0 24 24"><path d="M21 15a2 2 0 0 1-2 2H7l-4 4V5a2 2 0 0 1 2-2h14a2 2 0 0 1 2 2z"></path><line x1="9" y1="10" x2="15" y2="10"></line></svg></button>
+      <button class="tool-btn" id="btn-update" title="Cập nhật"><svg viewBox="0 0 24 24"><path d="M21 2v6h-6"></path><path d="M3 12a9 9 0 0 1 15-6.7L21 8"></path><path d="M3 22v-6h6"></path><path d="M21 12a9 9 0 0 1-15 6.7L3 16"></path></svg></button>
+    </div>
+  </div>
+
+  <div id="dashboard-overlay" class="overlay">
+    <div class="panel-box wide">
+      <div class="panel-head"><h3 class="panel-title">🚀 Dashboard điều hành</h3><button class="modal-btn cancel" data-close="dashboard-overlay">Đóng</button></div>
+      <div id="dashboard-stats" class="stats-grid mb-20"></div>
+      <div class="grid-2">
+        <div class="card">
+          <div class="section-head mb-12"><h4 class="section-title">Workspace hiện tại</h4><span id="dashboard-current-workspace" class="pill done"></span></div>
+          <div id="dashboard-workspace-summary" class="muted"></div>
+        </div>
+        <div class="card">
+          <div class="section-head mb-12"><h4 class="section-title">Tốc độ hoạt động</h4><span class="pill running">Live</span></div>
+          <div id="dashboard-kpis" class="chip-row"></div>
+        </div>
+      </div>
+      <div class="card mt-12">
+        <div class="section-head mb-12"><h4 class="section-title">Activity gần đây</h4><span class="muted">Tối đa 12 mục</span></div>
+        <div id="activity-list" class="list-scroll"></div>
+      </div>
+    </div>
+  </div>
+
+  <div id="workspace-overlay" class="overlay">
+    <div class="panel-box mid">
+      <div class="panel-head"><h3 class="panel-title">🗂️ Workspace</h3><button class="modal-btn cancel" data-close="workspace-overlay">Đóng</button></div>
+      <p class="download-meta">Mỗi workspace có profile, CRM, campaign, AI settings và quick replies riêng.</p>
+      <div class="row mb-16">
+        <input id="workspace-name-input" class="modal-input" placeholder="Tên workspace mới" style="margin:0;">
+        <button id="workspace-create-btn" class="modal-btn save">Tạo mới</button>
+      </div>
+      <div id="workspace-list" class="list-scroll"></div>
+    </div>
+  </div>
+
+  <div id="crm-overlay" class="overlay">
+    <div class="panel-box wide">
+      <div class="panel-head"><h3 class="panel-title">👥 CRM mini theo profile</h3><button class="modal-btn cancel" data-close="crm-overlay">Đóng</button></div>
+      <div class="grid-2">
+        <div>
+          <input id="crm-search" class="modal-input" placeholder="Tìm theo tên, số điện thoại, tag...">
+          <div id="crm-contact-list" class="list-scroll"></div>
+        </div>
+        <div>
+          <div class="card mb-12">
+            <div class="section-head"><h4 class="section-title">Thông tin contact</h4><button id="crm-fill-current" class="modal-btn cancel">Lấy từ tab hiện tại</button></div>
+            <input id="crm-name" class="modal-input" placeholder="Tên khách hàng">
+            <div class="form-grid">
+              <input id="crm-phone" class="modal-input" placeholder="Số điện thoại">
+              <select id="crm-status" class="modal-select">
+                <option value="new">Mới</option>
+                <option value="hot">Khách nóng</option>
+                <option value="follow">Đang chăm sóc</option>
+                <option value="bought">Đã mua</option>
+                <option value="blacklist">Blacklist</option>
+              </select>
+            </div>
+            <input id="crm-tags" class="modal-input" placeholder="Tag, phân tách bằng dấu phẩy">
+            <textarea id="crm-note" class="modal-textarea" placeholder="Ghi chú nội bộ"></textarea>
+            <div class="row"><span id="crm-selected-label" class="muted">Đang tạo contact mới</span><div><button id="crm-delete" class="modal-btn warn">Xóa</button><button id="crm-save" class="modal-btn save">Lưu contact</button></div></div>
+          </div>
+          <div class="card">
+            <div class="section-head mb-12"><h4 class="section-title">Snapshot tab hiện tại</h4><span class="muted">Dùng để điền nhanh CRM</span></div>
+            <div id="crm-current-chat" class="muted">Chưa có dữ liệu tab hiện tại.</div>
+          </div>
+        </div>
+      </div>
+    </div>
+  </div>
+
+  <div id="campaign-overlay" class="overlay">
+    <div class="panel-box wide">
+      <div class="panel-head"><h3 class="panel-title">📣 Campaign mini</h3><button class="modal-btn cancel" data-close="campaign-overlay">Đóng</button></div>
+      <div class="grid-2">
+        <div class="card">
+          <h4 class="section-title mb-12">Tạo chiến dịch Zalo</h4>
+          <div class="chip-row mb-12">
+            <span class="chip success">Chỉ áp dụng Zalo</span>
+            <span class="chip hot">Gửi qua nhiều tài khoản Zalo</span>
+          </div>
+          <input id="campaign-name" class="modal-input" placeholder="Tên chiến dịch Zalo">
+          <textarea id="campaign-message" class="modal-textarea" placeholder="Nội dung tin nhắn gửi hàng loạt trên Zalo"></textarea>
+          <div class="form-grid">
+            <input id="campaign-delay-min" class="modal-input" type="number" min="100" value="2500" placeholder="Delay min ms">
+            <input id="campaign-delay-max" class="modal-input" type="number" min="100" value="6500" placeholder="Delay max ms">
+          </div>
+          <div class="form-grid">
+            <input id="campaign-batch-size" class="modal-input" type="number" min="1" value="20" placeholder="Giới hạn target/contact">
+            <select id="campaign-mode" class="modal-select">
+              <option value="zalo_accounts">Gửi qua tất cả tài khoản Zalo</option>
+              <option value="auto">Gửi ở Zalo account hiện tại</option>
+              <option value="assist">Assist mode an toàn</option>
+            </select>
+          </div>
+          <div class="row mb-12"><span class="muted">Campaign chỉ chạy với profile nền tảng Zalo. Mode nhiều tài khoản sẽ lần lượt chuyển từng Zalo account và gửi vào hội thoại đang mở của account đó.</span><span id="campaign-target-count" class="pill done">0 target</span></div>
+          <div class="row"><button id="campaign-create" class="modal-btn save">Tạo campaign Zalo</button><button id="campaign-run-active" class="modal-btn cancel">Chạy campaign chọn</button></div>
+        </div>
+        <div class="card">
+          <div class="section-head mb-12"><h4 class="section-title">Danh sách campaign</h4><span class="muted">Pause / stop / xem log</span></div>
+          <div id="campaign-list" class="list-scroll"></div>
+        </div>
+      </div>
+    </div>
+  </div>
+
+  <div id="ai-overlay" class="overlay">
+    <div class="panel-box mid">
+      <div class="panel-head"><h3 class="panel-title">🤖 AI quick reply / rewrite</h3><button class="modal-btn cancel" data-close="ai-overlay">Đóng</button></div>
+      <div class="grid-2">
+        <div>
+          <input id="ai-endpoint" class="modal-input" placeholder="AI endpoint (OpenAI compatible)">
+          <input id="ai-api-key" class="modal-input" placeholder="API key">
+          <input id="ai-model" class="modal-input" placeholder="Model" value="gpt-4o-mini">
+          <select id="ai-mode" class="modal-select">
+            <option value="viết lại lịch sự">Viết lại lịch sự</option>
+            <option value="viết lại ngắn gọn">Viết lại ngắn gọn</option>
+            <option value="viết lại theo kiểu chốt sale">Chốt sale</option>
+            <option value="viết lại thân thiện, gần gũi">Thân thiện</option>
+          </select>
+          <textarea id="ai-input" class="modal-textarea" placeholder="Dán tin nhắn cần rewrite vào đây"></textarea>
+          <div class="row"><button id="ai-run" class="modal-btn save">Chạy AI</button><button id="ai-save-settings" class="modal-btn cancel">Lưu cấu hình</button></div>
+        </div>
+        <div>
+          <div class="ai-result mb-12">
+            <div class="section-head mb-12"><h4 class="section-title">Kết quả</h4><span id="ai-status" class="muted">Sẵn sàng</span></div>
+            <textarea id="ai-output" class="modal-textarea" placeholder="Kết quả AI sẽ hiện ở đây"></textarea>
+            <div class="row"><button id="ai-copy" class="modal-btn cancel">Copy</button><button id="ai-save-quick-reply" class="modal-btn save">Lưu thành quick reply</button></div>
+          </div>
+          <div class="card">
+            <div class="section-head mb-12"><h4 class="section-title">Gợi ý</h4><span class="pill done">MVP</span></div>
+            <div class="chip-row">
+              <span class="chip">Reply nhanh</span>
+              <span class="chip">Tóm gọn</span>
+              <span class="chip hot">Chốt sale</span>
+              <span class="chip success">Lưu mẫu</span>
+            </div>
+          </div>
+        </div>
+      </div>
+    </div>
   </div>
 
   <div id="quick-replies-overlay" class="overlay">
-    <div class="panel-box" style="width:480px;">
-      <div class="panel-head">
-        <h3 class="panel-title">💬 Tin nhắn mẫu</h3><button class="modal-btn cancel"
-          id="quick-replies-close">Đóng</button>
-      </div>
-      <p class="download-meta">Tạo tin nhắn mẫu, nhập <code
-          style="background:rgba(10,132,255,.2);color:#65b7ff;padding:2px 6px;border-radius:6px;font-size:12px;">/1</code>
-        <code
-          style="background:rgba(10,132,255,.2);color:#65b7ff;padding:2px 6px;border-radius:6px;font-size:12px;">/2</code>
-        ... trong khung chat rồi nhấn Enter để gửi.
-      </p>
-      <div id="quick-replies-list" style="max-height:320px;overflow-y:auto;margin-bottom:14px;"></div>
-      <div style="display:flex;gap:10px;align-items:flex-end;"><textarea id="quick-reply-input" class="modal-input"
-          placeholder="Nhập nội dung tin nhắn mẫu..."
-          style="margin:0;resize:vertical;min-height:48px;max-height:120px;flex:1;"></textarea><button
-          class="modal-btn save" id="quick-reply-add" style="height:48px;flex-shrink:0;">Thêm</button></div>
+    <div class="panel-box mid">
+      <div class="panel-head"><h3 class="panel-title">💬 Tin nhắn mẫu</h3><button class="modal-btn cancel" data-close="quick-replies-overlay">Đóng</button></div>
+      <p class="download-meta">Nhập <code>/1</code>, <code>/2</code> ... trong ô chat để chèn và gửi mẫu.</p>
+      <div id="quick-replies-list" class="list-scroll mb-16"></div>
+      <div class="row"><textarea id="quick-reply-input" class="modal-textarea" placeholder="Nhập nội dung quick reply mới" style="min-height:72px;margin:0;"></textarea><button class="modal-btn save" id="quick-reply-add">Thêm</button></div>
     </div>
   </div>
 
   <div id="modal-overlay" class="overlay">
     <div class="modal-box">
-      <h3 id="modal-title" style="margin-top:0;">Thêm tài khoản</h3>
+      <h3 id="modal-title" class="panel-title">Thêm tài khoản</h3>
       <div style="display:flex;align-items:center;gap:12px;margin-top:16px;">
-        <div id="avatar-preview"
-          style="width:56px;height:56px;border-radius:18px;background:#303544;cursor:pointer;display:flex;justify-content:center;align-items:center;overflow:hidden;border:1px solid rgba(255,255,255,.1);">
-          <span id="avatar-letter" style="font-size:24px;font-weight:bold;">+</span><img id="avatar-img"
-            style="width:100%;height:100%;object-fit:cover;display:none;" />
+        <div id="avatar-preview" style="width:56px;height:56px;border-radius:18px;background:#303544;cursor:pointer;display:flex;justify-content:center;align-items:center;overflow:hidden;border:1px solid rgba(255,255,255,.1);">
+          <span id="avatar-letter" style="font-size:24px;font-weight:bold;">+</span><img id="avatar-img" style="width:100%;height:100%;object-fit:cover;display:none;" />
         </div>
-        <div style="font-size:13px;color:#9aa3b8;cursor:pointer;"
-          onclick="document.getElementById('avatar-input').click()">Chọn ảnh đại diện<br />(Tùy chọn)</div><input
-          type="file" id="avatar-input" accept="image/*" style="display:none;" />
-      </div><input type="text" id="profile-name-input" class="modal-input"
-        placeholder="Tên hiển thị (để trống = tự lấy)" /><input type="text" id="profile-proxy-input" class="modal-input"
-        placeholder="Proxy: ip:port hoặc ip:port:user:pass" /><select id="profile-platform-input" class="modal-input"
-        style="cursor:pointer;">
+        <div class="muted" onclick="document.getElementById('avatar-input').click()" style="cursor:pointer;">Chọn ảnh đại diện<br>(Tùy chọn)</div>
+        <input type="file" id="avatar-input" accept="image/*" style="display:none;">
+      </div>
+      <input type="text" id="profile-name-input" class="modal-input" placeholder="Tên hiển thị (để trống = tự lấy)">
+      <input type="text" id="profile-proxy-input" class="modal-input" placeholder="Proxy: ip:port hoặc ip:port:user:pass">
+      <select id="profile-platform-input" class="modal-select">
         <option value="zalo">💬 Zalo</option>
         <option value="telegram">✈️ Telegram</option>
         <option value="messenger">💙 Messenger</option>
@@ -480,53 +541,46 @@
         <option value="teams">🟣 Microsoft Teams</option>
         <option value="gmail">📧 Google / Gmail</option>
       </select>
-      <div style="display:flex;justify-content:space-between;align-items:center;"><button class="modal-btn cancel"
-          id="modal-delete" style="background:#ff453a;color:white;display:none;">Xóa</button>
-        <div style="margin-left:auto;"><button class="modal-btn cancel" id="modal-cancel">Hủy</button><button
-            class="modal-btn save" id="modal-save">Lưu</button></div>
-      </div>
+      <div class="row"><button class="modal-btn warn" id="modal-delete" style="display:none;">Xóa</button><div><button class="modal-btn cancel" id="modal-cancel">Hủy</button><button class="modal-btn save" id="modal-save">Lưu</button></div></div>
     </div>
   </div>
+
   <div id="update-overlay" class="overlay">
     <div class="panel-box">
-      <div class="panel-head">
-        <h3 class="panel-title">Cập nhật ứng dụng</h3><button class="modal-btn cancel" id="update-close">Đóng</button>
-      </div>
+      <div class="panel-head"><h3 class="panel-title">Cập nhật ứng dụng</h3><button class="modal-btn cancel" data-close="update-overlay">Đóng</button></div>
       <p id="update-status" class="download-meta">Sẵn sàng kiểm tra cập nhật.</p>
       <div class="progress"><span id="update-progress"></span></div>
-      <div style="margin-top:16px;text-align:right;"><button class="modal-btn cancel" id="update-check">Kiểm
-          tra</button><button class="modal-btn save" id="update-download" style="display:none;">Tải
-          xuống</button><button class="modal-btn save" id="update-install" style="display:none;">Cài đặt</button></div>
+      <div style="margin-top:16px;text-align:right;"><button class="modal-btn cancel" id="update-check">Kiểm tra</button><button class="modal-btn save" id="update-download" style="display:none;">Tải xuống</button><button class="modal-btn save" id="update-install" style="display:none;">Cài đặt</button></div>
     </div>
   </div>
+
   <div id="lock-overlay" class="overlay">
     <div class="modal-box">
       <h2 style="margin-top:0;">🔒 Khóa ứng dụng</h2>
-      <p id="lock-hint" class="download-meta">Nhập mật khẩu để mở khóa.</p><input type="password" id="lock-password"
-        class="modal-input" placeholder="Mật khẩu" /><input type="password" id="lock-password-confirm"
-        class="modal-input" placeholder="Nhập lại mật khẩu" style="display:none;" /><button class="modal-btn save"
-        id="lock-submit">Mở khóa</button>
+      <p id="lock-hint" class="download-meta">Nhập mật khẩu để mở khóa.</p>
+      <input type="password" id="lock-password" class="modal-input" placeholder="Mật khẩu">
+      <input type="password" id="lock-password-confirm" class="modal-input" placeholder="Nhập lại mật khẩu" style="display:none;">
+      <button class="modal-btn save w-full" id="lock-submit">Mở khóa</button>
     </div>
   </div>
-  <!-- Lớp phủ đăng nhập -->
+
   <div id="auth-overlay" class="overlay">
     <div class="modal-box">
       <h2 style="margin-top:0; text-align:center;">🔑 Đăng nhập 9Meta</h2>
       <p class="download-meta" style="text-align:center;">Vui lòng đăng nhập tài khoản đã mua gói để sử dụng.</p>
-      <input type="email" id="auth-email" class="modal-input" placeholder="Email" />
-      <input type="password" id="auth-password" class="modal-input" placeholder="Mật khẩu" />
-      <button class="modal-btn save" id="auth-submit" style="width:100%; margin:0; margin-top:10px;">Đăng nhập</button>
-      <p id="auth-error" style="color:#ff453a; font-size:13px; text-align:center; display:none; margin-top:12px;"></p>
+      <input type="email" id="auth-email" class="modal-input" placeholder="Email">
+      <input type="password" id="auth-password" class="modal-input" placeholder="Mật khẩu">
+      <button class="modal-btn save w-full" id="auth-submit" style="margin-top:10px;">Đăng nhập</button>
+      <p id="auth-error" style="color:#ff7d97; font-size:13px; text-align:center; display:none; margin-top:12px;"></p>
       <p style="text-align:center; margin-top:18px; margin-bottom:0; font-size:12px; color:#666; letter-spacing:0.5px;">by <span style="background:linear-gradient(90deg,#0a84ff,#5e5ce6);-webkit-background-clip:text;-webkit-text-fill-color:transparent;font-weight:700;">Tiodev</span></p>
     </div>
   </div>
 
-  <!-- Lớp phủ hết hạn bản quyền -->
   <div id="expired-overlay" class="overlay">
-    <div class="modal-box" style="text-align:center;">
-      <h2 style="margin-top:0; color:#ff453a;">⚠️ Hết hạn bản quyền</h2>
+    <div class="modal-box">
+      <h2 style="margin-top:0; color:#ff6e8f;">⚠️ Hết hạn bản quyền</h2>
       <p id="expired-message" class="download-meta" style="font-size:14px;">Gói đăng ký của bạn đã hết hạn. Vui lòng thanh toán gia hạn để tiếp tục sử dụng.</p>
-      <div style="display:flex; justify-content:center; gap:10px; margin-top:20px;">
+      <div class="row" style="justify-content:center;">
         <button class="modal-btn cancel" id="expired-logout">Đăng xuất</button>
         <button class="modal-btn save" id="expired-upgrade" onclick="require('electron').shell.openExternal('https://tiodev.io.vn/pricing')">Gia hạn ngay</button>
       </div>

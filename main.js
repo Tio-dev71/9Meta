@@ -60,6 +60,69 @@ function saveSettings(data) {
   try { fs.writeFileSync(SETTINGS_PATH, JSON.stringify(data, null, 2), 'utf8'); } catch (err) { }
 }
 
+const WORKSPACES_DIR = path.join(app.getPath('userData'), 'workspaces');
+const WORKSPACE_INDEX_PATH = path.join(WORKSPACES_DIR, 'index.json');
+const DEFAULT_WORKSPACE_DATA = {
+  profiles: [],
+  quickReplies: [],
+  crmContacts: [],
+  campaigns: [],
+  analyticsEvents: [],
+  aiSettings: { endpoint: '', apiKey: '', model: 'gpt-4o-mini' },
+};
+
+function ensureDir(dir) {
+  try { fs.mkdirSync(dir, { recursive: true }); } catch { }
+}
+function safeJsonRead(file, fallback) {
+  try { return { ...fallback, ...JSON.parse(fs.readFileSync(file, 'utf8')) }; } catch { return { ...fallback }; }
+}
+function safeJsonWrite(file, data) {
+  ensureDir(path.dirname(file));
+  fs.writeFileSync(file, JSON.stringify(data, null, 2), 'utf8');
+}
+function normalizeWorkspaceData(data = {}) {
+  return {
+    ...DEFAULT_WORKSPACE_DATA,
+    ...data,
+    profiles: Array.isArray(data.profiles) ? data.profiles : [],
+    quickReplies: Array.isArray(data.quickReplies) ? data.quickReplies : [],
+    crmContacts: Array.isArray(data.crmContacts) ? data.crmContacts : [],
+    campaigns: Array.isArray(data.campaigns) ? data.campaigns : [],
+    analyticsEvents: Array.isArray(data.analyticsEvents) ? data.analyticsEvents.slice(-500) : [],
+    aiSettings: { ...DEFAULT_WORKSPACE_DATA.aiSettings, ...(data.aiSettings || {}) },
+  };
+}
+function loadWorkspaceIndex() {
+  ensureDir(WORKSPACES_DIR);
+  let index = safeJsonRead(WORKSPACE_INDEX_PATH, { currentId: 'default', workspaces: [] });
+  if (!Array.isArray(index.workspaces) || !index.workspaces.length) {
+    index = { currentId: 'default', workspaces: [{ id: 'default', name: 'Workspace mặc định', createdAt: Date.now() }] };
+    safeJsonWrite(WORKSPACE_INDEX_PATH, index);
+  }
+  if (!index.workspaces.some(w => w.id === index.currentId)) index.currentId = index.workspaces[0].id;
+  return index;
+}
+function getWorkspaceFile(id) { return path.join(WORKSPACES_DIR, id, 'data.json'); }
+function loadWorkspaceData(id) { return normalizeWorkspaceData(safeJsonRead(getWorkspaceFile(id), DEFAULT_WORKSPACE_DATA)); }
+function saveWorkspaceData(id, data) { safeJsonWrite(getWorkspaceFile(id), normalizeWorkspaceData(data)); }
+function getWorkspaceState() {
+  const index = loadWorkspaceIndex();
+  const data = loadWorkspaceData(index.currentId);
+  if (!data.quickReplies.length && settings.quickReplies?.length) data.quickReplies = settings.quickReplies;
+  return { ...index, data };
+}
+function persistWorkspaceState(data) {
+  const index = loadWorkspaceIndex();
+  saveWorkspaceData(index.currentId, data);
+  settings.quickReplies = normalizeWorkspaceData(data).quickReplies;
+  saveSettings(settings);
+  return getWorkspaceState();
+}
+function broadcastQuickReplies(replies) {
+  for (const id in browserViews) browserViews[id]?.webContents?.send('update-quick-replies', replies || []);
+}
+
 let mainWindow = null;
 let tray = null;
 let settings = loadSettings();
@@ -351,10 +414,37 @@ function createWindow() {
     sess.setPermissionRequestHandler((webContents, permission, callback) => {
       const url = webContents.getURL();
       const isAllowed = isInternalUrl(url) || url.includes('fbcdn.net') || url.includes('gstatic.com') || url.includes('googleusercontent.com');
-      const allowedPermissions = ['notifications', 'media', 'mediaKeySystem', 'microphone', 'camera', 'clipboard-read', 'clipboard-sanitized-write'];
+      const allowedPermissions = [
+        'notifications',
+        'media',
+        'mediaKeySystem',
+        'microphone',
+        'camera',
+        'clipboard-read',
+        'clipboard-sanitized-write',
+        'fileSystem',
+        'file-system-access',
+        'fileSystemAccess',
+      ];
       callback(!!isAllowed && allowedPermissions.includes(permission));
     });
-    sess.setPermissionCheckHandler((webContents) => isInternalUrl(webContents?.getURL() || ''));
+    sess.setPermissionCheckHandler((webContents, permission) => {
+      const url = webContents?.getURL() || '';
+      if (!isInternalUrl(url)) return false;
+      if (!permission) return true;
+      return [
+        'notifications',
+        'media',
+        'mediaKeySystem',
+        'microphone',
+        'camera',
+        'clipboard-read',
+        'clipboard-sanitized-write',
+        'fileSystem',
+        'file-system-access',
+        'fileSystemAccess',
+      ].includes(permission);
+    });
   });
 
   mainWindow.loadFile('index.html');
@@ -416,6 +506,13 @@ function createWindow() {
     }
     if (senderId) sendToRenderer('update-profile-info', { id: senderId, name: info.name, avatarUrl: info.avatar });
   });
+  ipcMain.on('current-chat-info-extracted', (event, info) => {
+    let senderId = null;
+    for (const [id, view] of Object.entries(browserViews)) {
+      if (view.webContents === event.sender) { senderId = id; break; }
+    }
+    if (senderId) sendToRenderer('current-chat-info', { ...info, profileId: senderId });
+  });
 
   ipcMain.on('update-badge', (event, count) => { if (count !== unreadCount) { const hadNewMessages = count > unreadCount; unreadCount = count; updateBadge(unreadCount); if (hadNewMessages && !mainWindow.isFocused()) mainWindow.flashFrame(true); } });
   ipcMain.on('set-theme', (event, isDark) => { settings.isDarkMode = isDark; saveSettings(settings); nativeTheme.themeSource = isDark ? 'dark' : 'light'; });
@@ -424,9 +521,104 @@ function createWindow() {
   ipcMain.on('zoom-in', () => { const wc = activeProfileId && browserViews[activeProfileId]?.webContents; if (wc) wc.setZoomLevel(wc.getZoomLevel() + 0.5); });
   ipcMain.on('zoom-out', () => { const wc = activeProfileId && browserViews[activeProfileId]?.webContents; if (wc) wc.setZoomLevel(wc.getZoomLevel() - 0.5); });
   ipcMain.on('reload-page', () => activeProfileId && browserViews[activeProfileId]?.webContents.reload());
-  ipcMain.on('get-settings', (event) => { event.returnValue = { isDarkMode: settings.isDarkMode, alwaysOnTop: settings.alwaysOnTop, blockSeen: settings.blockSeen, blockTyping: settings.blockTyping, zadarkShield: settings.zadarkShield, lockOnStartup: settings.lockOnStartup, hasLockPassword: !!settings.lockPasswordHash, quickReplies: settings.quickReplies || [] }; });
-  ipcMain.on('get-quick-replies', (event) => { event.returnValue = settings.quickReplies || []; });
-  ipcMain.on('save-quick-replies', (event, replies) => { settings.quickReplies = replies || []; saveSettings(settings); for (const id in browserViews) browserViews[id]?.webContents?.send('update-quick-replies', settings.quickReplies); });
+  ipcMain.on('get-settings', (event) => {
+    const ws = getWorkspaceState();
+    event.returnValue = { isDarkMode: settings.isDarkMode, alwaysOnTop: settings.alwaysOnTop, blockSeen: settings.blockSeen, blockTyping: settings.blockTyping, zadarkShield: settings.zadarkShield, lockOnStartup: settings.lockOnStartup, hasLockPassword: !!settings.lockPasswordHash, quickReplies: ws.data.quickReplies || [] };
+  });
+  ipcMain.on('workspace-get-state', (event) => { event.returnValue = getWorkspaceState(); });
+  ipcMain.on('workspace-save-data', (event, data) => {
+    const state = persistWorkspaceState(data || {});
+    broadcastQuickReplies(state.data.quickReplies);
+    event.returnValue = state;
+  });
+  ipcMain.on('workspace-create', (event, name) => {
+    const index = loadWorkspaceIndex();
+    const id = `ws_${Date.now()}`;
+    index.workspaces.push({ id, name: String(name || 'Workspace mới').trim() || 'Workspace mới', createdAt: Date.now() });
+    index.currentId = id;
+    safeJsonWrite(WORKSPACE_INDEX_PATH, index);
+    saveWorkspaceData(id, DEFAULT_WORKSPACE_DATA);
+    event.returnValue = getWorkspaceState();
+  });
+  ipcMain.on('workspace-switch', (event, id) => {
+    const index = loadWorkspaceIndex();
+    if (index.workspaces.some(w => w.id === id)) {
+      index.currentId = id;
+      safeJsonWrite(WORKSPACE_INDEX_PATH, index);
+    }
+    const state = getWorkspaceState();
+    broadcastQuickReplies(state.data.quickReplies);
+    event.returnValue = state;
+  });
+  ipcMain.on('get-quick-replies', (event) => { event.returnValue = getWorkspaceState().data.quickReplies || settings.quickReplies || []; });
+  ipcMain.on('save-quick-replies', (event, replies) => {
+    const state = getWorkspaceState();
+    state.data.quickReplies = replies || [];
+    persistWorkspaceState(state.data);
+    broadcastQuickReplies(state.data.quickReplies);
+  });
+  ipcMain.handle('ai-rewrite', async (event, payload = {}) => {
+    const { endpoint, apiKey, model, text, mode } = payload;
+    if (!endpoint || !apiKey) return { ok: false, message: 'Chưa cấu hình AI endpoint/API key.' };
+    try {
+      const res = await fetch(endpoint, {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json', Authorization: `Bearer ${apiKey}` },
+        body: JSON.stringify({
+          model: model || 'gpt-4o-mini',
+          messages: [
+            { role: 'system', content: 'Bạn là trợ lý viết tin nhắn bán hàng tiếng Việt. Trả về duy nhất nội dung tin nhắn đã viết lại.' },
+            { role: 'user', content: `Hãy ${mode || 'viết lại'} tin nhắn sau:\n${text || ''}` },
+          ],
+          temperature: 0.7,
+        }),
+      });
+      const data = await res.json();
+      if (!res.ok) throw new Error(data.error?.message || data.message || 'AI request failed');
+      return { ok: true, text: data.choices?.[0]?.message?.content?.trim() || data.text || '' };
+    } catch (err) { return { ok: false, message: err.message || String(err) }; }
+  });
+  ipcMain.handle('active-chat-send-text', async (event, message = '', options = {}) => {
+    const requestedProfileId = options.profileId || activeProfileId;
+    const view = requestedProfileId && browserViews[requestedProfileId];
+    if (options.platform && options.platform !== 'zalo') return { ok: false, message: 'Bulk send chỉ áp dụng cho Zalo.' };
+    if (!view || !message) return { ok: false, message: 'Chưa có tab Zalo active hoặc nội dung trống.' };
+    try {
+      const currentUrl = view.webContents.getURL() || '';
+      if (!currentUrl.includes('zalo.me')) return { ok: false, message: 'Tab hiện tại không phải Zalo.' };
+      const safeMessage = JSON.stringify(String(message));
+      const result = await view.webContents.executeJavaScript(`
+        (function() {
+          function findInput() {
+            return document.querySelector('[contenteditable="true"][role="textbox"]') ||
+              document.querySelector('[contenteditable="true"]') ||
+              document.querySelector('textarea') ||
+              document.querySelector('input[type="text"]');
+          }
+          function dispatchInput(el) {
+            el.dispatchEvent(new InputEvent('input', { bubbles: true, inputType: 'insertText', data: ${safeMessage} }));
+            el.dispatchEvent(new Event('change', { bubbles: true }));
+          }
+          var input = findInput();
+          if (!input) return { ok: false, message: 'Không tìm thấy ô nhập chat Zalo.' };
+          input.focus();
+          document.execCommand('selectAll', false, null);
+          document.execCommand('insertText', false, ${safeMessage});
+          if (input.value !== undefined) input.value = ${safeMessage};
+          dispatchInput(input);
+          var sendBtn = document.querySelector('[data-translate-title="STR_SEND"]') ||
+            document.querySelector('button[class*="send"]') ||
+            document.querySelector('.chat-input__send-btn') ||
+            document.querySelector('[aria-label="Gửi"]') ||
+            document.querySelector('[aria-label="Send"]');
+          if (sendBtn) sendBtn.click();
+          else input.dispatchEvent(new KeyboardEvent('keydown', { key: 'Enter', code: 'Enter', keyCode: 13, which: 13, bubbles: true, cancelable: true }));
+          return { ok: true, message: 'Đã gửi lệnh chèn/gửi vào tab Zalo.' };
+        })();
+      `);
+      return result || { ok: true };
+    } catch (err) { return { ok: false, message: err.message || String(err) }; }
+  });
   ipcMain.on('renderer-ready', () => sendToRenderer('lock-state', { locked: settings.lockOnStartup || appLocked, hasPassword: !!settings.lockPasswordHash, zadarkShield: settings.zadarkShield }));
   ipcMain.on('check-for-updates', () => checkForUpdates(true));
   ipcMain.on('download-update', () => autoUpdater.downloadUpdate().catch(err => setUpdateState({ status: 'error', message: (err.message || err.toString()).split('\n')[0] })));
