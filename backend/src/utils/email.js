@@ -1,13 +1,14 @@
 const nodemailer = require('nodemailer');
 
-// The transporter is configured using SMTP settings.
-// Gmail is used as the default service, but you can change it via ENV vars.
+// Brevo SMTP configuration
 const createTransporter = () => {
   return nodemailer.createTransport({
-    service: 'gmail',
+    host: 'smtp-relay.brevo.com',
+    port: 587,
+    secure: false,
     auth: {
-      user: process.env.SMTP_USER, // e.g., your.email@gmail.com
-      pass: process.env.SMTP_PASS, // App Password from Google Account
+      user: process.env.SMTP_USER || 'aec817001@smtp-brevo.com',
+      pass: process.env.SMTP_PASS, // Passed via .env to prevent Github blocking push
     },
   });
 };
@@ -18,16 +19,10 @@ const createTransporter = () => {
  * @param {string} code 
  */
 async function sendPasswordResetEmail(toEmail, code) {
-  if (!process.env.SMTP_USER || !process.env.SMTP_PASS) {
-    console.warn('SMTP_USER or SMTP_PASS not set in .env! Email not sent.');
-    console.log(`[DEV MODE] Forgot Password Code for ${toEmail}: ${code}`);
-    return;
-  }
-
   const transporter = createTransporter();
 
   const mailOptions = {
-    from: `"9Meta Admin" <${process.env.SMTP_USER}>`,
+    from: `"9Meta Admin" <${process.env.SMTP_USER || 'aec817001@smtp-brevo.com'}>`,
     to: toEmail,
     subject: 'Mã xác nhận khôi phục mật khẩu 9Meta',
     html: `
