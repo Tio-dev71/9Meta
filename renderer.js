@@ -65,7 +65,13 @@ function normalizeProfiles(list) {
   if (!arr.length) {
     return [{ id: String(Date.now()), name: 'Nick 1', partition: `persist:nick_${Date.now()}`, platform: 'zalo' }];
   }
-  return arr.map((p) => ({ ...p, platform: p.platform || 'zalo', partition: p.partition || `persist:nick_${p.id}` }));
+  return arr.map((p) => {
+    let avatarUrl = p.avatar;
+    if (avatarUrl && !avatarUrl.startsWith('http') && !avatarUrl.startsWith('data:')) {
+      avatarUrl = ''; 
+    }
+    return { ...p, avatar: avatarUrl, platform: p.platform || 'zalo', partition: p.partition || `persist:nick_${p.id}` };
+  });
 }
 function persistWorkspace() {
   workspaceData.profiles = profiles;
@@ -88,7 +94,7 @@ function openOverlay(id) {
 function closeOverlay(id) {
   document.getElementById(id).style.display = 'none';
   const stillOpen = overlayIds.some((overlayId) => document.getElementById(overlayId) && document.getElementById(overlayId).style.display === 'flex');
-  if (!stillOpen && !appLocked) ipcRenderer.send('set-browserview-visibility', true);
+  if (!stillOpen && !appLocked && !toolsLauncherOpen) ipcRenderer.send('set-browserview-visibility', true);
 }
 function escapeHtml(s) { return String(s || '').replace(/[&<>\"]/g, (c) => ({ '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;' }[c])); }
 function platformIcon(platform) { return { zalo: 'Z', telegram: '✈', messenger: 'M', fanpage: '🚩', whatsapp: 'W', teams: 'T', gmail: 'G' }[platform || 'zalo'] || 'A'; }
@@ -137,6 +143,13 @@ function setLauncherOpen(open) {
   overlay.classList.toggle('open', toolsLauncherOpen);
   overlay.setAttribute('aria-hidden', toolsLauncherOpen ? 'false' : 'true');
   trigger.classList.toggle('active', toolsLauncherOpen);
+
+  if (toolsLauncherOpen) {
+    ipcRenderer.send('set-browserview-visibility', false);
+  } else {
+    const stillOpen = overlayIds.some((overlayId) => document.getElementById(overlayId) && document.getElementById(overlayId).style.display === 'flex');
+    if (!stillOpen && !appLocked) ipcRenderer.send('set-browserview-visibility', true);
+  }
 }
 function runToolAction(action, autoClose = true) {
   const handler = TOOL_ACTION_HANDLERS[action];
@@ -177,7 +190,7 @@ function renderSidebar() {
     span.innerText = p.avatar ? '' : platformIcon(p.platform);
     if (p.avatar) {
       const img = document.createElement('img');
-      img.src = p.avatar.startsWith('http') ? p.avatar : `file://${String(p.avatar).replace(/\\/g, '/')}`;
+      img.src = p.avatar.startsWith('http') || p.avatar.startsWith('data:') ? p.avatar : `file://${String(p.avatar).replace(/\\/g, '/')}`;
       img.style.cssText = 'width:100%;height:100%;border-radius:inherit;object-fit:cover;position:absolute;inset:0;';
       btn.appendChild(img);
     } else btn.appendChild(span);
@@ -213,7 +226,7 @@ function openModal(profileToEdit = null) {
 }
 function updateAvatarPreview() {
   if (tempAvatarPath) {
-    avatarImg.src = tempAvatarPath.startsWith('http') ? tempAvatarPath : `file://${String(tempAvatarPath).replace(/\\/g, '/')}`;
+    avatarImg.src = tempAvatarPath.startsWith('http') || tempAvatarPath.startsWith('data:') ? tempAvatarPath : `file://${String(tempAvatarPath).replace(/\\/g, '/')}`;
     avatarImg.style.display = 'block';
     avatarLetter.style.display = 'none';
   } else {
@@ -620,7 +633,17 @@ function renderAll() {
 }
 
 avatarPreview.onclick = () => avatarInput.click();
-avatarInput.onchange = (e) => { if (e.target.files && e.target.files[0]) { tempAvatarPath = e.target.files[0].path; updateAvatarPreview(); } };
+avatarInput.onchange = (e) => {
+  if (e.target.files && e.target.files[0]) {
+    const file = e.target.files[0];
+    const reader = new FileReader();
+    reader.onload = (ev) => {
+      tempAvatarPath = ev.target.result;
+      updateAvatarPreview();
+    };
+    reader.readAsDataURL(file);
+  }
+};
 platformInput.addEventListener('change', updateAvatarPreview);
 nameInput.addEventListener('input', updateAvatarPreview);
 

@@ -26,7 +26,7 @@ const crypto = require('crypto');
 
 const ZALO_URL = 'https://chat.zalo.me';
 const APP_ID = 'com.zalo.desktop';
-const SIDEBAR_WIDTH = 56;
+const SIDEBAR_WIDTH = 72;
 const USER_AGENT = 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/126.0.0.0 Safari/537.36';
 
 const gotTheLock = app.requestSingleInstanceLock();
