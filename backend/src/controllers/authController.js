@@ -111,71 +111,76 @@ async function login(req, res) {
 }
 
 async function forgotPassword(req, res) {
-  const { email } = req.body;
-  if (!email) return res.status(400).json({ message: 'Email is required' });
+  try {
+    const { email } = req.body;
+    if (!email) return res.status(400).json({ message: 'Email is required' });
 
-  const user = await prisma.user.findUnique({ where: { email } });
-  if (!user) {
-    // Return 200 even if not found to prevent email enumeration
-    return res.json({ message: 'Nếu email tồn tại, mã xác nhận đã được gửi.' });
+    const user = await prisma.user.findUnique({ where: { email } });
+    if (!user) {
+      return res.json({ message: 'Nếu email tồn tại, mã xác nhận đã được gửi.' });
+    }
+
+    const code = Math.floor(100000 + Math.random() * 900000).toString();
+    const expiresAt = new Date(Date.now() + 15 * 60 * 1000); 
+
+    await prisma.passwordResetToken.deleteMany({ where: { email } });
+
+    await prisma.passwordResetToken.create({
+      data: {
+        email,
+        code,
+        expiresAt,
+      },
+    });
+
+    const { sendPasswordResetEmail } = require('../utils/email');
+    await sendPasswordResetEmail(email, code);
+
+    return res.json({ message: 'Mã xác nhận đã được gửi vào email của bạn.' });
+  } catch (error) {
+    console.error('Forgot password error:', error);
+    return res.status(500).json({ message: 'Lỗi máy chủ khi gửi email xác nhận. Vui lòng thử lại sau.' });
   }
-
-  // Generate 6-digit code
-  const code = Math.floor(100000 + Math.random() * 900000).toString();
-  const expiresAt = new Date(Date.now() + 15 * 60 * 1000); // 15 mins
-
-  // Clear any existing tokens for this email
-  await prisma.passwordResetToken.deleteMany({ where: { email } });
-
-  await prisma.passwordResetToken.create({
-    data: {
-      email,
-      code,
-      expiresAt,
-    },
-  });
-
-  const { sendPasswordResetEmail } = require('../utils/email');
-  await sendPasswordResetEmail(email, code);
-
-  return res.json({ message: 'Mã xác nhận đã được gửi vào email của bạn.' });
 }
 
 async function resetPassword(req, res) {
-  const { email, code, newPassword } = req.body;
-  if (!email || !code || !newPassword) {
-    return res.status(400).json({ message: 'Thiếu thông tin yêu cầu.' });
-  }
+  try {
+    const { email, code, newPassword } = req.body;
+    if (!email || !code || !newPassword) {
+      return res.status(400).json({ message: 'Thiếu thông tin yêu cầu.' });
+    }
 
-  if (newPassword.length < 6) {
-    return res.status(400).json({ message: 'Mật khẩu phải có ít nhất 6 ký tự.' });
-  }
+    if (newPassword.length < 6) {
+      return res.status(400).json({ message: 'Mật khẩu phải có ít nhất 6 ký tự.' });
+    }
 
-  const tokenRecord = await prisma.passwordResetToken.findFirst({
-    where: {
-      email,
-      code,
-      expiresAt: {
-        gt: new Date(), // ensure not expired
+    const tokenRecord = await prisma.passwordResetToken.findFirst({
+      where: {
+        email,
+        code,
+        expiresAt: {
+          gt: new Date(), 
+        },
       },
-    },
-  });
+    });
 
-  if (!tokenRecord) {
-    return res.status(400).json({ message: 'Mã xác nhận không hợp lệ hoặc đã hết hạn.' });
+    if (!tokenRecord) {
+      return res.status(400).json({ message: 'Mã xác nhận không hợp lệ hoặc đã hết hạn.' });
+    }
+
+    const passwordHash = await bcrypt.hash(newPassword, 12);
+    await prisma.user.update({
+      where: { email },
+      data: { passwordHash },
+    });
+
+    await prisma.passwordResetToken.delete({ where: { id: tokenRecord.id } });
+
+    return res.json({ message: 'Mật khẩu đã được đặt lại thành công.' });
+  } catch (error) {
+    console.error('Reset password error:', error);
+    return res.status(500).json({ message: 'Lỗi máy chủ khi đổi mật khẩu.' });
   }
-
-  // Update user password
-  const passwordHash = await bcrypt.hash(newPassword, 12);
-  await prisma.user.update({
-    where: { email },
-    data: { passwordHash },
-  });
-
-  // Delete the token
-  await prisma.passwordResetToken.delete({ where: { id: tokenRecord.id } });
-
-  return res.json({ message: 'Mật khẩu đã được đặt lại thành công.' });
 }
 
 module.exports = { register, login, forgotPassword, resetPassword };
