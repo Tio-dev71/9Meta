@@ -6,12 +6,15 @@ const prisma = new PrismaClient();
 async function main() {
   await prisma.plan.upsert({
     where: { code: 'starter' },
-    update: {},
+    update: {
+      monthlyPrice: 399000,
+      yearlyPrice: 3830400,
+    },
     create: {
       code: 'starter',
       name: 'Starter',
-      monthlyPrice: 799000,
-      yearlyPrice: 7670400,
+      monthlyPrice: 399000,
+      yearlyPrice: 3830400,
       maxAccountsPerApp: 3,
       unlimitedProxies: false,
     },
@@ -19,12 +22,15 @@ async function main() {
 
   await prisma.plan.upsert({
     where: { code: 'pro' },
-    update: {},
+    update: {
+      monthlyPrice: 1190000,
+      yearlyPrice: 11424000,
+    },
     create: {
       code: 'pro',
       name: 'Pro',
-      monthlyPrice: 1590000,
-      yearlyPrice: 15264000,
+      monthlyPrice: 1190000,
+      yearlyPrice: 11424000,
       maxAccountsPerApp: 5,
       unlimitedProxies: true,
     },
@@ -32,12 +38,15 @@ async function main() {
 
   await prisma.plan.upsert({
     where: { code: 'enterprise' },
-    update: {},
+    update: {
+      monthlyPrice: 3090000,
+      yearlyPrice: 29664000,
+    },
     create: {
       code: 'enterprise',
       name: 'Enterprise',
-      monthlyPrice: 3490000,
-      yearlyPrice: 33504000,
+      monthlyPrice: 3090000,
+      yearlyPrice: 29664000,
       maxAccountsPerApp: null,
       unlimitedProxies: true,
     },
