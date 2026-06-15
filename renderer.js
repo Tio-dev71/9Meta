@@ -284,6 +284,7 @@ function renderWorkspaces() {
       workspaceData = normalizeWorkspaceData(workspaceState.data);
       profiles = normalizeProfiles(workspaceData.profiles);
       activeProfileId = profiles[0]?.id || null;
+      closeOverlay('workspace-overlay');
       renderAll();
       if (activeProfileId) switchProfile(activeProfileId);
       trackEvent('workspace_switch', { workspaceId: id });
@@ -701,6 +702,7 @@ document.getElementById('workspace-create-btn').onclick = () => {
   activeProfileId = profiles[0]?.id || null;
   input.value = '';
   trackEvent('workspace_created', { name });
+  closeOverlay('workspace-overlay');
   renderAll();
   if (activeProfileId) switchProfile(activeProfileId);
 };

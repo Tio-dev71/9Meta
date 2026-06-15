@@ -134,6 +134,7 @@ let proxyCredentials = {};
 let appLocked = false;
 let downloads = [];
 let updateState = { status: 'idle', progress: 0, message: 'Sẵn sàng kiểm tra cập nhật.' };
+let isBrowserViewVisible = true;
 
 function createBadgeIcon(count) {
   const size = 18;
@@ -500,7 +501,9 @@ function createWindow() {
       else if (profile.platform === 'telegram') url = 'https://web.telegram.org/a/';
       view.webContents.loadURL(url, { userAgent: ua });
     }
-    mainWindow.setBrowserView(browserViews[profile.id]); updateBrowserViewBounds();
+    if (isBrowserViewVisible) {
+      mainWindow.setBrowserView(browserViews[profile.id]); updateBrowserViewBounds();
+    }
   });
   ipcMain.on('update-profile-settings', (event, profile) => {
     const sess = session.fromPartition(profile.partition);
@@ -511,7 +514,13 @@ function createWindow() {
       sess.setProxy({ proxyRules });
     } else sess.setProxy({ proxyRules: 'direct://' });
   });
-  ipcMain.on('set-browserview-visibility', (event, visible) => { if (!mainWindow) return; if (visible && !appLocked && activeProfileId && browserViews[activeProfileId]) { mainWindow.setBrowserView(browserViews[activeProfileId]); updateBrowserViewBounds(); } else mainWindow.setBrowserView(null); });
+  ipcMain.on('set-browserview-visibility', (event, visible) => { 
+    if (!mainWindow) return; 
+    isBrowserViewVisible = visible;
+    if (visible && !appLocked && activeProfileId && browserViews[activeProfileId]) { 
+      mainWindow.setBrowserView(browserViews[activeProfileId]); updateBrowserViewBounds(); 
+    } else mainWindow.setBrowserView(null); 
+  });
   ipcMain.on('delete-profile', (event, id) => { if (browserViews[id]) { browserViews[id].webContents.destroy(); delete browserViews[id]; } });
   
   ipcMain.on('profile-info-extracted', (event, info) => {

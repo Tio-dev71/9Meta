@@ -274,6 +274,32 @@ function runInjection(currentSettings) {
       } catch (e) {}
 
       // Auto extract profile name & avatar
+      function extractCurrentChatInfo() {
+        var info = { name: '', platform: platform.toLowerCase() };
+        try {
+          if (isZalo) {
+            var chatNameEl = document.querySelector('.header-title') || document.querySelector('.title-name');
+            if (chatNameEl) info.name = chatNameEl.innerText.trim();
+          } else if (isMessenger) {
+            var chatNameEl = document.querySelector('span[dir="auto"]');
+            if (document.title && document.title.includes('Messenger')) {
+               var t = document.title.replace('| Messenger', '').trim();
+               if (t !== 'Messenger' && t !== 'Facebook') info.name = t;
+            }
+          } else if (isWhatsApp) {
+            var chatNameEl = document.querySelector('#main header span[dir="auto"]');
+            if (chatNameEl) info.name = chatNameEl.innerText.trim();
+          } else if (isTelegram) {
+            var chatNameEl = document.querySelector('.MiddleHeader .chat-title, .middle-header .peer-title');
+            if (chatNameEl) info.name = chatNameEl.innerText.trim();
+          }
+        } catch (e) {}
+        if (info.name) {
+          try { window.messengerApp.sendCurrentChatInfo(info); } catch (e) {}
+        }
+      }
+      setInterval(extractCurrentChatInfo, 3000);
+
       function extractProfileInfo() {
         var info = { name: '', avatar: '' };
         try {
