@@ -7,14 +7,14 @@ async function main() {
   await prisma.plan.upsert({
     where: { code: 'starter' },
     update: {
-      monthlyPrice: 399000,
-      yearlyPrice: 3830400,
+      monthlyPrice: 299000,
+      yearlyPrice: 2870400,
     },
     create: {
       code: 'starter',
       name: 'Starter',
-      monthlyPrice: 399000,
-      yearlyPrice: 3830400,
+      monthlyPrice: 299000,
+      yearlyPrice: 2870400,
       maxAccountsPerApp: 3,
       unlimitedProxies: false,
     },
@@ -23,14 +23,14 @@ async function main() {
   await prisma.plan.upsert({
     where: { code: 'pro' },
     update: {
-      monthlyPrice: 1190000,
-      yearlyPrice: 11424000,
+      monthlyPrice: 599000,
+      yearlyPrice: 5750400,
     },
     create: {
       code: 'pro',
       name: 'Pro',
-      monthlyPrice: 1190000,
-      yearlyPrice: 11424000,
+      monthlyPrice: 599000,
+      yearlyPrice: 5750400,
       maxAccountsPerApp: 5,
       unlimitedProxies: true,
     },
@@ -39,14 +39,14 @@ async function main() {
   await prisma.plan.upsert({
     where: { code: 'enterprise' },
     update: {
-      monthlyPrice: 3090000,
-      yearlyPrice: 29664000,
+      monthlyPrice: 799000,
+      yearlyPrice: 7670400,
     },
     create: {
       code: 'enterprise',
       name: 'Enterprise',
-      monthlyPrice: 3090000,
-      yearlyPrice: 29664000,
+      monthlyPrice: 799000,
+      yearlyPrice: 7670400,
       maxAccountsPerApp: null,
       unlimitedProxies: true,
     },
