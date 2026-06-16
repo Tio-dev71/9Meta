@@ -256,16 +256,17 @@
     }
     body.light-mode .tool-tile { background: rgba(12, 30, 60, .045); border-color: rgba(12, 30, 60, .08); }
     .tool-tile-icon {
-      width: 34px;
-      height: 34px;
-      border-radius: 13px;
-      display: grid;
-      place-items: center;
-      margin-bottom: 10px;
+      width: 36px;
+      height: 36px;
+      border-radius: 14px;
+      display: flex;
+      align-items: center;
+      justify-content: center;
+      margin-bottom: 12px;
       background: linear-gradient(135deg, rgba(110,168,255,.28), rgba(124,92,255,.2));
       color: #9fc6ff;
     }
-    .tool-tile-icon svg { width: 18px; height: 18px; stroke: currentColor; fill: none; stroke-width: 2.1; stroke-linecap: round; stroke-linejoin: round; }
+    .tool-tile-icon svg { width: 18px; height: 18px; stroke: currentColor; fill: none; stroke-width: 2.1; stroke-linecap: round; stroke-linejoin: round; display: block; }
     .tool-tile strong { display: block; font-size: 13px; }
     .tool-tile span { display: block; margin-top: 3px; color: var(--muted); font-size: 11px; line-height: 1.25; }
     .tools-mini-row { display: grid; grid-template-columns: repeat(6, 1fr); gap: 8px; margin-top: 12px; }
@@ -320,6 +321,7 @@
       align-items: center;
       justify-content: space-between;
     }
+    .panel-head { margin-bottom: 24px; }
     .panel-title, .section-title { margin: 0; }
     .panel-title { font-size: 22px; }
     .section-title { font-size: 15px; letter-spacing: .2px; }
@@ -333,7 +335,7 @@
       padding: 13px 14px;
       font: inherit;
       outline: none;
-      margin-top: 10px;
+      margin-top: 16px;
     }
     body.light-mode .modal-input, body.light-mode .modal-select, body.light-mode .modal-textarea { background: rgba(10,20,40,.04); }
     .modal-input:focus, .modal-select:focus, .modal-textarea:focus { border-color: var(--primary); box-shadow: 0 0 0 4px rgba(110,168,255,.16); }
@@ -435,11 +437,12 @@
     .pill.stopped, .pill.failed { color: #ff95a8; }
     .pill.done { color: #7dc5ff; }
 
-    .form-grid { display: grid; grid-template-columns: repeat(2, minmax(0, 1fr)); gap: 12px; }
+    .form-grid { display: grid; grid-template-columns: repeat(2, minmax(0, 1fr)); gap: 16px; }
     .mb-12 { margin-bottom: 12px; }
     .mb-16 { margin-bottom: 16px; }
     .mb-20 { margin-bottom: 20px; }
     .mt-12 { margin-top: 12px; }
+    .mt-16 { margin-top: 16px; }
     .w-full { width: 100%; }
 
     #lock-overlay .modal-box, #auth-overlay .modal-box, #expired-overlay .modal-box { width: 420px; text-align: center; }
@@ -559,7 +562,7 @@
             </div>
             <input id="crm-tags" class="modal-input" placeholder="Tag, phân tách bằng dấu phẩy">
             <textarea id="crm-note" class="modal-textarea" placeholder="Ghi chú nội bộ"></textarea>
-            <div class="row"><span id="crm-selected-label" class="muted">Đang tạo contact mới</span><div><button id="crm-delete" class="modal-btn warn">Xóa</button><button id="crm-save" class="modal-btn save">Lưu contact</button></div></div>
+            <div class="row mt-16"><span id="crm-selected-label" class="muted">Đang tạo contact mới</span><div><button id="crm-delete" class="modal-btn warn">Xóa</button><button id="crm-save" class="modal-btn save">Lưu contact</button></div></div>
           </div>
           <div class="card">
             <div class="section-head mb-12"><h4 class="section-title">Snapshot tab hiện tại</h4><span class="muted">Dùng để điền nhanh CRM</span></div>
@@ -594,8 +597,8 @@
               <option value="assist">Assist mode an toàn</option>
             </select>
           </div>
-          <div class="row mb-12"><span class="muted">Campaign chỉ chạy với profile nền tảng Zalo. Mode nhiều tài khoản sẽ lần lượt chuyển từng Zalo account và gửi vào hội thoại đang mở của account đó.</span><span id="campaign-target-count" class="pill done">0 target</span></div>
-          <div class="row"><button id="campaign-create" class="modal-btn save">Tạo campaign Zalo</button><button id="campaign-run-active" class="modal-btn cancel">Chạy campaign chọn</button></div>
+          <div class="row mb-12 mt-16"><span class="muted">Campaign chỉ chạy với profile nền tảng Zalo. Mode nhiều tài khoản sẽ lần lượt chuyển từng Zalo account và gửi vào hội thoại đang mở của account đó.</span><span id="campaign-target-count" class="pill done">0 target</span></div>
+          <div class="row mt-16"><button id="campaign-create" class="modal-btn save">Tạo campaign Zalo</button><button id="campaign-run-active" class="modal-btn cancel">Chạy campaign chọn</button></div>
         </div>
         <div class="card">
           <div class="section-head mb-12"><h4 class="section-title">Danh sách campaign</h4><span class="muted">Pause / stop / xem log</span></div>
@@ -620,13 +623,13 @@
             <option value="viết lại thân thiện, gần gũi">Thân thiện</option>
           </select>
           <textarea id="ai-input" class="modal-textarea" placeholder="Dán tin nhắn cần rewrite vào đây"></textarea>
-          <div class="row"><button id="ai-run" class="modal-btn save">Chạy AI</button><button id="ai-save-settings" class="modal-btn cancel">Lưu cấu hình</button></div>
+          <div class="row mt-16"><button id="ai-run" class="modal-btn save">Chạy AI</button><button id="ai-save-settings" class="modal-btn cancel">Lưu cấu hình</button></div>
         </div>
         <div>
           <div class="ai-result mb-12">
             <div class="section-head mb-12"><h4 class="section-title">Kết quả</h4><span id="ai-status" class="muted">Sẵn sàng</span></div>
             <textarea id="ai-output" class="modal-textarea" placeholder="Kết quả AI sẽ hiện ở đây"></textarea>
-            <div class="row"><button id="ai-copy" class="modal-btn cancel">Copy</button><button id="ai-save-quick-reply" class="modal-btn save">Lưu thành quick reply</button></div>
+            <div class="row mt-16"><button id="ai-copy" class="modal-btn cancel">Copy</button><button id="ai-save-quick-reply" class="modal-btn save">Lưu thành quick reply</button></div>
           </div>
           <div class="card">
             <div class="section-head mb-12"><h4 class="section-title">Gợi ý</h4><span class="pill done">MVP</span></div>
@@ -647,7 +650,7 @@
       <div class="panel-head"><h3 class="panel-title">💬 Tin nhắn mẫu</h3><button class="modal-btn cancel" data-close="quick-replies-overlay">Đóng</button></div>
       <p class="download-meta">Nhập <code>/1</code>, <code>/2</code> ... trong ô chat để chèn và gửi mẫu.</p>
       <div id="quick-replies-list" class="list-scroll mb-16"></div>
-      <div class="row"><textarea id="quick-reply-input" class="modal-textarea" placeholder="Nhập nội dung quick reply mới" style="min-height:72px;margin:0;"></textarea><button class="modal-btn save" id="quick-reply-add">Thêm</button></div>
+      <div class="row mt-16"><textarea id="quick-reply-input" class="modal-textarea" placeholder="Nhập nội dung quick reply mới" style="min-height:72px;margin:0;"></textarea><button class="modal-btn save" id="quick-reply-add">Thêm</button></div>
     </div>
   </div>
 
@@ -672,7 +675,7 @@
         <option value="teams">🟣 Microsoft Teams</option>
         <option value="gmail">📧 Google / Gmail</option>
       </select>
-      <div class="row"><button class="modal-btn warn" id="modal-delete" style="display:none;">Xóa</button><div><button class="modal-btn cancel" id="modal-cancel">Hủy</button><button class="modal-btn save" id="modal-save">Lưu</button></div></div>
+      <div class="row mt-16"><button class="modal-btn warn" id="modal-delete" style="display:none;">Xóa</button><div><button class="modal-btn cancel" id="modal-cancel">Hủy</button><button class="modal-btn save" id="modal-save">Lưu</button></div></div>
     </div>
   </div>
 
