@@ -975,7 +975,9 @@ async function loadDesignOrders() {
     const search = document.getElementById('design-search').value.trim().toUpperCase();
     const exactCode = isLikelyOrderCode(search);
     const params = new URLSearchParams({ limit: '50', offset: '0' });
-    if (search) params.set(exactCode ? 'orderCode' : 'search', search);
+    // API đang chạy chỉ hiểu `search` (tìm chuỗi con, không phân biệt hoa/thường);
+    // tham số lạ như `orderCode` bị bỏ qua và trả về cả danh sách. Luôn gửi `search`.
+    if (search) params.set('search', search);
     if (designStatusFilter) params.set('status', designStatusFilter);
     const designerId = document.getElementById('design-filter-designer')?.value || '';
     const dateFrom = document.getElementById('design-date-from')?.value || '';
@@ -998,9 +1000,16 @@ async function loadDesignOrders() {
       data = await designOrdersInFlight.get(path);
     }
     if (requestId !== designOrdersRequestId) return;
-    const rows = data.orders || data.items || [];
+    let rows = data.orders || data.items || [];
+    if (search) {
+      // Chốt chặn phía app: chỉ hiển thị đơn có mã chứa chuỗi đã gõ; khớp đúng mã thì chỉ giữ đơn đó.
+      const codeOf = (order) => String(order?.orderCode || '').trim().toUpperCase();
+      rows = rows.filter((order) => codeOf(order).includes(search));
+      const exactRows = rows.filter((order) => codeOf(order) === search);
+      if (exactCode && exactRows.length) rows = exactRows;
+    }
     const statusLabels = { demo: 'Chưa demo', designing: 'Thiết kế', approved: 'Chốt in', cancelled: 'Huỷ' };
-    list.innerHTML = rows.length ? rows.map((order, index) => `<button class="design-order-card ${selectedDesignOrder?.id === order.id ? 'selected' : ''}" data-design-index="${index}" type="button"><span class="design-card-top"><strong class="design-code">${escapeHtml(order.orderCode)}</strong><span class="design-status ${escapeHtml(order.status || '')}">${escapeHtml(statusLabels[order.status] || order.status || 'Chưa demo')}</span></span><span class="design-card-bottom"><b>${escapeHtml(order.designer?.fullName || 'Chưa gán')}</b><span>📅 ${escapeHtml(order.deadline ? new Date(order.deadline).toLocaleDateString('vi-VN') : '—')}</span><span>📎 ${Number(order.fileCount) || 0} files</span></span></button>`).join('') : '<div class="utility-empty">Không có đơn hàng nào.</div>';
+    list.innerHTML = rows.length ? rows.map((order, index) => `<button class="design-order-card ${selectedDesignOrder?.id === order.id ? 'selected' : ''}" data-design-index="${index}" type="button"><span class="design-card-top"><strong class="design-code">${escapeHtml(order.orderCode)}</strong><span class="design-status ${escapeHtml(order.status || '')}">${escapeHtml(statusLabels[order.status] || order.status || 'Chưa demo')}</span></span><span class="design-card-bottom"><b>${escapeHtml(order.designer?.fullName || 'Chưa gán')}</b><span>📅 ${escapeHtml(order.deadline ? new Date(order.deadline).toLocaleDateString('vi-VN') : '—')}</span><span>📎 ${Number(order.fileCount) || 0} files</span></span></button>`).join('') : `<div class="utility-empty">${search ? `Không tìm thấy đơn ${escapeHtml(search)}.` : 'Không có đơn hàng nào.'}</div>`;
     list.querySelectorAll('[data-design-index]').forEach((button) => { button.onclick = () => fillDesignForm(rows[Number(button.dataset.designIndex)]); });
   } catch (error) {
     if (requestId === designOrdersRequestId) list.innerHTML = `<div class="empty-state">${escapeHtml(error.message)}</div>`;

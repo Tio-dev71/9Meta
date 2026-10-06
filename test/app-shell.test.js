@@ -367,7 +367,8 @@ test('utility panes are mutually exclusive and design orders load only when the 
   assert.match(renderer, /function isLikelyOrderCode\(value\)/);
   // Ma don chuan hoa chu hoa truoc khi tra chinh xac; Tìm voi orderCode luon goi moi.
   assert.match(renderer, /getElementById\('design-search'\)\.value\.trim\(\)\.toUpperCase\(\)/);
-  assert.match(renderer, /exactCode \? 'orderCode' : 'search'/);
+  assert.match(renderer, /if \(search\) params\.set\('search', search\)/);
+  assert.match(renderer, /codeOf\(order\) === search/);
   assert.match(renderer, /if \(exactCode\)/);
   assert.match(renderer, /getElementById\('design-search-btn'\)\.onclick/);
 });
@@ -775,13 +776,16 @@ test('quick reply writes text before pasting the image so Enter sends both', () 
   const preload = fs.readFileSync(path.join(root, 'preload.js'), 'utf8');
   const body = preload.slice(preload.indexOf('async function applyQuickReply('), preload.indexOf('window.__DepLaoFinalizeQuickReply'));
   // Dung chu truoc, danh anh sau: Zalo chi tin editor da co state chu moi tinh ca hai khi Enter.
-  const textAt = body.indexOf('insertComposerTextInPage(targetInput, finalMessage)');
+  const textAt = body.indexOf('await fillComposerWithRealPaste(targetInput, finalMessage)');
   const pasteAt = body.indexOf('pasteQuickReplyImage(imagePath)');
   assert.ok(textAt > 0 && pasteAt > 0);
   assert.ok(textAt < pasteAt, 'phai dung chu truoc roi danh anh');
   // Dinh lai chu sau khi anh ve, de Zalo khong bo chi do len state gui.
   assert.match(body, /await waitForComposerImage\(before, QUICK_REPLY_IMAGE_TIMEOUT_MS\)/);
-  assert.match(body, /if \(!String\(composerTextValue\(targetInput\)\)\.trim\(\)\) \{\s*insertComposerTextInPage/);
+  assert.match(body, /if \(!String\(composerTextValue\(targetInput\)\)\.trim\(\)\) \{\s*await fillComposerWithRealPaste/);
+  // Chu phai di qua thao tac dan that de Lexical ghi nhan, khong chi dung DOM.
+  assert.match(preload, /pasteQuickReplyText: \(text\) => ipcRenderer\.invoke\('quick-reply:paste-text', text\)/);
+  assert.match(preload, /await waitForComposerText\(targetInput, text, 2500\)/);
   // Dán anh that bai thi giu chu da dung va bao nhung khong bao loi chung.
   assert.match(body, /stage: 'paste-warn'/);
   assert.doesNotMatch(body, /stage: 'preview'/);

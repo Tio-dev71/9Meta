@@ -22,6 +22,7 @@ contextBridge.exposeInMainWorld('messengerApp', {
   emitZaloGroupScanEvent: (payload) => ipcRenderer.send('zalo-group-scan:event', payload),
   emitZaloUserScanEvent: (payload) => ipcRenderer.send('zalo-user-scan:event', payload),
   pasteQuickReplyImage: (imagePath) => ipcRenderer.invoke('quick-reply:paste-image', imagePath),
+  pasteQuickReplyText: (text) => ipcRenderer.invoke('quick-reply:paste-text', text),
 });
 
 // Neu main process chua kip dang ky listener thi sendSync tra ve undefined;
@@ -380,6 +381,37 @@ function runInjection(currentSettings) {
         setInterval(hideZaloQuickReplyPanel, 700);
       }
 
+      function normalizeComposerCompare(text) {
+        return String(text || '').replace(/\s+/g, '');
+      }
+
+      function waitForComposerText(targetInput, expected, timeoutMs) {
+        var want = normalizeComposerCompare(expected);
+        return new Promise(function(resolve) {
+          var deadline = Date.now() + timeoutMs;
+          (function poll() {
+            var have = normalizeComposerCompare(composerTextValue(targetInput));
+            if (want ? have === want : !have) { resolve(true); return; }
+            if (Date.now() >= deadline) { resolve(false); return; }
+            setTimeout(poll, 60);
+          })();
+        });
+      }
+
+      // Ô chat Zalo là Lexical: chữ dựng bằng DOM/execCommand chỉ hiện trên màn hình,
+      // state gửi đi vẫn rỗng (đè placeholder, Enter chỉ gửi ảnh). Nhờ main bấm
+      // Ctrl+A rồi Ctrl+V chữ thật để Lexical tự ghi nhận, thay luôn token \keyword.
+      async function fillComposerWithRealPaste(targetInput, text) {
+        targetInput.focus();
+        if (targetInput.value === undefined && window.messengerApp && window.messengerApp.pasteQuickReplyText) {
+          var res = null;
+          try { res = await window.messengerApp.pasteQuickReplyText(text); } catch (e) { res = null; }
+          if (res && res.ok && await waitForComposerText(targetInput, text, 2500)) return true;
+        }
+        clearComposerText(targetInput);
+        return insertComposerTextInPage(targetInput, text);
+      }
+
       async function applyQuickReply(targetInput, reply, typedText, viaMain) {
         if (!targetInput || !reply || window.__DepLaoApplyingQuickReply) {
           return { ok: false, message: 'Đang có mẫu khác chờ chèn. Thử lại sau giây lát.' };
@@ -394,8 +426,7 @@ function runInjection(currentSettings) {
           // Dựng chữ TRƯỚC khi dán ảnh: Zalo đọc \n thành xuống dòng qua editing engine,
           // tránh cảnh Enter chỉ gửi được ảnh còn chữ bị coi là rỗng (đè tin).
           clearComposerNotice();
-          clearComposerText(targetInput);
-          insertComposerTextInPage(targetInput, finalMessage);
+          await fillComposerWithRealPaste(targetInput, finalMessage);
           var imagePath = String(reply.imagePath || '').trim();
           if (imagePath) {
             var before = composerPendingImageNodes(composerRoot()).length;
@@ -410,7 +441,7 @@ function runInjection(currentSettings) {
             // Đồng bộ lại chữ sau khi dán ảnh: một số bản Zalo reset editor khi ảnh về,
             // khiến chữ bị rớt khỏi state gửi dù vẫn hiển thị.
             if (!String(composerTextValue(targetInput)).trim()) {
-              insertComposerTextInPage(targetInput, finalMessage);
+              await fillComposerWithRealPaste(targetInput, finalMessage);
             }
           }
           if (viaMain) return { ok: true, doneByMain: true, finalMessage: finalMessage, keyword: keyword };
