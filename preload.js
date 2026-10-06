@@ -38,7 +38,7 @@ if (typeof window.addEventListener === 'function') {
 const quicksandFontDataUrl = (settings && settings.quicksandFontDataUrl) || '';
 
 function runInjection(currentSettings) {
-  const injectionScript = `
+  const injectionScript = String.raw`
     window.__DepLaoBlockSeen = ${currentSettings.blockSeen || false};
     window.__DepLaoBlockTyping = ${currentSettings.blockTyping || false};
     window.__DepLaoZaDarkShield = ${currentSettings.zadarkShield || false};
@@ -292,16 +292,49 @@ function runInjection(currentSettings) {
       // vẫn đáng tin ở đây; chỉ luồng nút "Chèn" (focus nằm ngoài tab Zalo) mới cần
       // nhờ main process dán chữ bằng webContents.insertText.
       function insertComposerTextInPage(targetInput, text) {
+        var normalized = String(text || '').replace(/\r\n/g, '\n').replace(/\r/g, '\n');
+        var lines = normalized.split('\n');
         targetInput.focus();
         if (targetInput.value !== undefined) {
-          targetInput.value = text;
+          targetInput.value = normalized;
           targetInput.dispatchEvent(new Event('input', { bubbles: true }));
           return true;
         }
-        var ok = false;
-        try { ok = document.execCommand('insertText', false, text); } catch (err) { ok = false; }
-        if (!ok) targetInput.innerText = text;
+        var isRichInput = targetInput.id === 'richInput' || (targetInput.getAttribute && (targetInput.getAttribute('role') || '').toLowerCase() === 'textbox');
+        // Xoá sạch rồi dựng từng dòng thành block riêng trong cùng một tick JS của Zalo,
+        // tránh race qua main process khiến \n bị bỏ khi gửi.
+        targetInput.innerHTML = '';
+        if (lines.length === 1 && lines[0] === '') {
+          targetInput.appendChild(document.createElement('br'));
+        } else {
+          for (var i = 0; i < lines.length; i++) {
+            var div = document.createElement('div');
+            div.appendChild(document.createTextNode(lines[i]));
+            if (lines[i] === '') div.appendChild(document.createElement('br'));
+            targetInput.appendChild(div);
+          }
+        }
+        // Đặt caret cuối nội dung
+        try {
+          var range = document.createRange();
+          var sel = window.getSelection && window.getSelection();
+          range.selectNodeContents(targetInput);
+          range.collapse(false);
+          if (sel) { sel.removeAllRanges(); sel.addRange(range); }
+        } catch (e) {}
         targetInput.dispatchEvent(new Event('input', { bubbles: true }));
+        // Dự phòng: với môi trường Zalo lạ (Lexical cũ) fallback sang insertText/innerText
+        if (!String(composerTextValue(targetInput)).trim()) {
+          targetInput.focus();
+          var ok = false;
+          try { ok = document.execCommand('insertText', false, normalized); } catch (err) { ok = false; }
+          if (!ok) targetInput.innerText = normalized;
+          targetInput.dispatchEvent(new Event('input', { bubbles: true }));
+        }
+        if (isRichInput) {
+          // Zalo Lexical/Lexcal lưu history theo '\n' qua state; đồng bộ lại light-weight
+          try { targetInput.dispatchEvent(new KeyboardEvent('keyup', { bubbles: true })); } catch (e) {}
+        }
         return String(composerTextValue(targetInput)).trim().length > 0;
       }
 
@@ -355,10 +388,10 @@ function runInjection(currentSettings) {
           }
           clearComposerNotice();
           clearComposerText(targetInput);
-          // Nút "Chèn" nằm ngoài ô soạn (focus ngoài tab Zalo) → giao cho main process dán bằng webContents.insertText.
-          // Luồng gõ \keyword ngay trong ô soạn → dán in-page cho mượt, không round-trip thêm.
-          if (viaMain) return { ok: true, doneByMain: true, finalMessage: finalMessage, keyword: keyword };
+          // Cả nút "Chèn" và gõ \keyword đều dán trong trang bằng cùng một hàm dựng block;
+          // giữ viaMain chỉ cho main process focus View đúng tab rồi kết thúc.
           insertComposerTextInPage(targetInput, finalMessage);
+          if (viaMain) return { ok: true, doneByMain: true, finalMessage: finalMessage, keyword: keyword };
           return { ok: true, keyword: keyword };
         } catch (err) {
           return { ok: false, message: String((err && err.message) || err) };
@@ -367,7 +400,7 @@ function runInjection(currentSettings) {
         }
       }
 
-      // Chốt bước chèn chữ sau khi main process đã dán chữ bằng webContents.insertText
+      // Dọn thông báo tạm sau khi nút "Chèn" đã điền xong nội dung trong ô soạn tin.
       window.__DepLaoFinalizeQuickReply = function(result) {
         if (result && result.doneByMain) {
           var box = document.getElementById('dep-lao-quick-reply-notice');
@@ -382,6 +415,17 @@ function runInjection(currentSettings) {
         if (!input) return Promise.resolve({ ok: false, message: 'Không tìm thấy ô soạn tin Zalo. Hãy mở một cuộc trò chuyện.' });
         if (!String(composerTextValue(input)).trim()) input.focus();
         return applyQuickReply(input, reply || {}, undefined, true);
+      };
+
+      // Nút "Chèn" báo giá: dựng từng dòng thành block riêng trong cùng một tick JS
+      // (giống tin nhắn nhanh), không dùng webContents.insertText vì \n bị bỏ khi gửi.
+      window.__DepLaoInsertComposerText = function(text) {
+        var input = findComposerInput();
+        if (!input) return { ok: false, message: 'Không tìm thấy ô soạn tin Zalo. Hãy mở một cuộc trò chuyện.' };
+        clearComposerText(input);
+        var ok = insertComposerTextInPage(input, String(text || ''));
+        if (!ok) return { ok: false, message: 'Không chèn được nội dung vào ô soạn tin Zalo.' };
+        return { ok: true, chars: String(text || '').length };
       };
 
       // Ẩn panel Tin nhắn nhanh gốc của Zalo để chỉ còn danh sách của Nhà Yến (chỉ ẩn bằng CSS, không vá sâu vào Zalo).
@@ -495,13 +539,13 @@ function runInjection(currentSettings) {
         var hasGroupIcon = !!(input && input.hasGroupIcon);
         // Tin xem truoc cua nhom luon co tien to ten nguoi gui ("Emin:", "Tuấn Gai:");
         // chat 1-1 thi khong (hoac "Bạn:"). Day la dau hieu dang tin nhat trong DOM Zalo web.
-        var m = bodyText.match(/^\\s*([^:\\n]{1,40}):\\s/);
+        var m = bodyText.match(/^\s*([^:\n]{1,40}):\s/);
         if (m) {
           var who = m[1].trim().toLowerCase();
           if (who && who !== 'bạn' && who !== 'ban' && who !== 'you') return 'group';
         }
         if (/(^|[^a-z])(group|grp)[_-]/i.test(dataId)) return 'group';
-        if (/\\bgroup\\b/i.test(className)) return 'group';
+        if (/\bgroup\b/i.test(className)) return 'group';
         if (/(nh[oó]m|group)/i.test(ariaLabel) || /(nh[oó]m|group)/i.test(title)) return 'group';
         if (avatarCount >= 3) return 'group';
         if (hasGroupIcon) return 'group';
@@ -525,7 +569,7 @@ function runInjection(currentSettings) {
         return String(value || '')
           .normalize('NFC')
           .replace(/[\u200B-\u200D\uFEFF]/g, '')
-          .replace(/\\s+/g, ' ')
+          .replace(/\s+/g, ' ')
           .trim();
       }
 

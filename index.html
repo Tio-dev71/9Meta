@@ -328,7 +328,10 @@
     .data-table .col-stt { width: 52px; }
     .data-table .col-image { width: 76px; }
     .data-table .col-actions { width: 132px; white-space: nowrap; }
-    .data-table td.qr-content { max-width: 320px; white-space: pre-wrap; word-break: break-word; }
+    #quick-replies-table .qr-main-row td { vertical-align: middle; border-bottom: 0; }
+    #quick-replies-table .qr-content-row td { padding: 0 10px 14px; border-bottom: 1px solid #eef1f6; }
+    #quick-replies-table .qr-content { display: block; width: 100%; max-width: none; white-space: pre-wrap; word-break: break-word; line-height: 1.55; color: #344054; }
+    #quick-replies-table .col-keyword { width: 132px; }
     .data-table .qr-keyword { font-family: inherit; font-weight: 700; color: #1767d9; }
     .qr-thumb { width: 52px; height: 52px; object-fit: cover; border-radius: 8px; border: 1px solid #e1e6ee; background: #f7f9fc; }
     .qr-thumb-missing { display: inline-flex; align-items: center; justify-content: center; width: 52px; height: 52px; border-radius: 8px; border: 1px dashed #ef5267; color: #d92d45; font-size: 11px; text-align: center; line-height: 1.2; }
@@ -1328,7 +1331,9 @@
     .design-toolbar { display:flex; align-items:center; justify-content:space-between; gap:8px; padding:8px 10px 6px; }
     .design-toolbar h2 { margin:0; font-size:18px; color:#1e293b; }
     .design-add { border:0; border-radius:20px; padding:7px 14px; background:#1a6fd4; color:#fff; font-weight:700; cursor:pointer; }
-    .design-search-wrap { padding:0 10px 6px; }
+    .design-search-wrap { padding:0 10px 6px; display:flex; gap:8px; align-items:center; }
+    .design-search-wrap #design-search { flex:1; }
+    .design-search-wrap #design-search-btn { flex:0 0 auto; padding:8px 16px; white-space:nowrap; }
     .design-chips { display:flex; flex-wrap:wrap; gap:4px; padding:0 10px 6px; overflow:visible; }
     .design-chip { white-space:nowrap; padding:5px 10px; border:1px solid #e2e8f0; border-radius:14px; background:#fff; color:#475569; cursor:pointer; font-weight:600; }
     .design-chip.active { background:#1e293b; border-color:#1e293b; color:#fff; }
@@ -1544,7 +1549,7 @@
       <section id="utility-pane-design" class="utility-pane design-panel" aria-label="Đơn thiết kế">
         <div id="design-list-view" class="design-list-view">
           <div class="design-toolbar"><h2>Đơn thiết kế</h2><button id="design-new" class="design-add" type="button">＋ Tạo đơn mới</button></div>
-          <div class="design-search-wrap"><input id="design-search" class="modal-input" type="search" placeholder="Tìm theo mã đơn..."></div>
+          <div class="design-search-wrap"><input id="design-search" class="modal-input" type="search" placeholder="Nhập mã đơn rồi bấm Tìm"><button id="design-search-btn" class="modal-btn save" type="button">Tìm</button></div>
           <div class="design-chips" role="group" aria-label="Lọc trạng thái đơn">
             <button class="design-chip active" data-status="" type="button">Tất cả</button><button class="design-chip" data-status="demo" type="button">Chưa demo</button><button class="design-chip" data-status="designing" type="button">Thiết kế</button><button class="design-chip" data-status="approved" type="button">Chốt in</button><button class="design-chip" data-status="cancelled" type="button">Huỷ</button>
           </div>
@@ -1996,7 +2001,7 @@
         <div class="table-wrap mb-12">
           <table class="data-table" id="quick-replies-table">
             <thead>
-              <tr><th class="col-stt">STT</th><th>Ký tự tắt</th><th class="col-image">Ảnh</th><th>Nội dung</th><th class="col-actions">Hành động</th></tr>
+              <tr><th class="col-stt">STT</th><th class="col-keyword">Ký tự tắt</th><th class="col-image">Ảnh</th><th class="col-actions">Hành động</th></tr>
             </thead>
             <tbody id="quick-replies-rows"></tbody>
           </table>

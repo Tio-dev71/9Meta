@@ -19,6 +19,8 @@ test('name matching is only a bootstrap aid and reports duplicates', () => {
   assert.equal(findScannedGroupByName([{ groupId: '1', name: 'File thiết kế' }], 'File thiết kế').status, 'unique');
   assert.equal(findScannedGroupByName([{ groupId: '1', name: 'A' }, { groupId: '2', name: 'A' }], 'A').status, 'ambiguous');
   assert.equal(extractOrderCode('D250817 - chốt in'), 'D250817');
+  assert.equal(extractOrderCode('Nhi'), '');
+  assert.equal(extractOrderCode('ALL'), '');
 });
 
 test('standard quote calculator follows the CRM pricing tiers and hides premium quote concerns', () => {
@@ -30,3 +32,13 @@ test('standard quote calculator follows the CRM pricing tiers and hides premium 
   assert.match(buildQuoteText({ type: 'nhunu', quantity: 400 }), /BÁO GIÁ THIỆP CƯỚI NHÀ YẾN/);
   assert.equal(buildQuoteText({ quantity: 49 }), '');
 });
+
+test('standard paper under 400 cards inserts the same pearl-foil text when used', () => {
+  // Gia tinh van theo bang tieu chuan (tinh nhe), chi van ban chen ra giong giay anh nhu.
+  assert.equal(calculateStandardQuote({ type: 'standard', quantity: 200 }).unitPrice, 3900);
+  assert.match(buildQuoteText({ type: 'standard', quantity: 200 }), /GIẤY ÁNH NHŨ LẤP LÁNH/);
+  assert.doesNotMatch(buildQuoteText({ type: 'standard', quantity: 200 }), /GIẤY TIÊU CHUẨN/);
+  assert.match(buildQuoteText({ type: 'standard', quantity: 400 }), /GIẤY TIÊU CHUẨN/);
+  assert.equal(buildQuoteText({ type: 'standard', quantity: 200 }), buildQuoteText({ type: 'nhunu', quantity: 200 }));
+});
+

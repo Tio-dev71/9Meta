@@ -350,7 +350,7 @@ test('video library persists managed files and stages a selected item without se
   assert.match(main, /keyCode:\s*'V'.*modifiers:\s*\['control'\]/);
 });
 
-test('utility panes are mutually exclusive and design refreshes the active Zalo chat before searching', () => {
+test('utility panes are mutually exclusive and design orders load only when the user searches', () => {
   const html = fs.readFileSync(path.join(root, 'index.html'), 'utf8');
   const renderer = fs.readFileSync(path.join(root, 'renderer.js'), 'utf8');
   const main = fs.readFileSync(path.join(root, 'main.js'), 'utf8');
@@ -360,7 +360,13 @@ test('utility panes are mutually exclusive and design refreshes the active Zalo 
   assert.match(main, /ipcMain\.handle\('active-chat:get-info'/);
   assert.match(renderer, /refreshCurrentChatSnapshot/);
   assert.match(renderer, /ipcRenderer\.invoke\('active-chat:get-info'/);
-  assert.match(renderer, /document\.getElementById\('design-search'\)\.value = code/);
+  // Ten nhom Zalo khong con duoc dung lam ma don tu dong (chi nhap tay roi bam Tim).
+  assert.doesNotMatch(renderer, /getElementById\('design-search'\)\.value = code/);
+  assert.doesNotMatch(renderer, /design-search'\)\.value = extractOrderCode/);
+  assert.match(html, /id="design-search-btn"/);
+  assert.match(renderer, /function isLikelyOrderCode\(value\)/);
+  assert.match(renderer, /isLikelyOrderCode\(search\) \? 'orderCode' : 'search'/);
+  assert.match(renderer, /getElementById\('design-search-btn'\)\.onclick/);
 });
 
 test('Pancake and design panels use compact single-panel workflows', () => {
@@ -436,6 +442,18 @@ test('v2.5.34 at-rest encryption: master password unlock, encrypted settings/dat
   // Renderer có overlay bắt buộc khi nhận need-master-password.
   assert.match(renderer, /ipcRenderer\.on\('need-master-password'/);
   assert.match(renderer, /showSecureOverlay/);
+});
+
+test('locked secure store cannot be bypassed before adding or saving a profile', () => {
+  const main = fs.readFileSync(path.join(root, 'main.js'), 'utf8');
+  const renderer = fs.readFileSync(path.join(root, 'renderer.js'), 'utf8');
+  assert.match(main, /ipcMain\.on\('secure-status-sync'/);
+  assert.match(main, /code:\s*'STORE_LOCKED'/);
+  assert.match(main, /code:\s*'WRITE_FAILED'/);
+  assert.match(renderer, /let storeUnlocked = false/);
+  assert.match(renderer, /if \(id === 'lock-overlay' && !storeUnlocked\) return false/);
+  assert.match(renderer, /btn-add-profile'[\s\S]*?refreshSecureStatus\(\)/);
+  assert.match(renderer, /modal-save'[\s\S]*?refreshSecureStatus\(\)/);
 });
 
 test('v2.5.34 preset master password: nhân viên phải nhập đúng mật khẩu chủ đã set sẵn, plaintext không lộ trong mã nguồn', () => {
@@ -736,6 +754,20 @@ test('quick replies run in the Zalo main world through the proven webFrame bridg
   assert.match(main, /quick-reply:ready/);
 });
 
+test('multi-line inserts build one block per line inside Zalo, no insertText race', () => {
+  const preload = fs.readFileSync(path.join(root, 'preload.js'), 'utf8');
+  const main = fs.readFileSync(path.join(root, 'main.js'), 'utf8');
+  // Tin nhanh va bao gia deu dung trong trang bang cung ham dung block.
+  assert.match(preload, /function insertComposerTextInPage\(targetInput, text\)/);
+  assert.match(preload, /window\.__DepLaoInsertComposerText = function\(text\)/);
+  const qrHandler = main.slice(main.indexOf("ipcMain.handle('quick-reply:test-template'"), main.indexOf("ipcMain.handle('quick-reply:send'"));
+  assert.match(qrHandler, /__DepLaoFinalizeQuickReply/);
+  assert.doesNotMatch(qrHandler, /webContents\.insertText\(String\(result\.finalMessage/);
+  const quoteHandler = main.slice(main.indexOf("ipcMain.handle('active-chat-insert-text'"), main.indexOf("ipcMain.handle('active-chat-send-text'"));
+  assert.match(quoteHandler, /__DepLaoInsertComposerText/);
+  assert.doesNotMatch(quoteHandler, /webContents\.insertText\(String\(message\)\)/);
+});
+
 test('connected CRM panels collapse credentials into a compact header chip', () => {
   const html = fs.readFileSync(path.join(root, 'index.html'), 'utf8');
   const renderer = fs.readFileSync(path.join(root, 'renderer.js'), 'utf8');
@@ -930,6 +962,8 @@ test('quick Pancake order posts an empty item list without choosing a catalog pr
   assert.doesNotMatch(payloadFn, /if \(!pancakeItems\.length\) throw/);
   assert.match(payloadFn, /items: pancakeItems\.map/);
   assert.doesNotMatch(createHandler, /loadPancakeProductCatalog|catalog\[0\]|variation_id: first\.id/);
-  assert.match(createHandler, /const payload = pancakeApiPayload\(pancakeOrderPayload\(\)\)/);
-  assert.match(createHandler, /const emptyOrder = pancakeItems\.length === 0/);
+  assert.match(createHandler, /const emptyPayload = \{/);
+  assert.match(createHandler, /items: \[\]/);
+  assert.match(createHandler, /const payload = pancakeApiPayload\(emptyPayload\)/);
+  assert.doesNotMatch(createHandler, /pancakeOrderPayload\(\)/);
 });

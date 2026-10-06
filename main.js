@@ -29,38 +29,35 @@ const fs = require('fs');
 const crypto = require('crypto');
 const os = require('os');
 const IS_TEST_DISTRIBUTION = require('./package.json').testDistribution === true;
-// Migrate tu %AppData%/9meta cu sang %AppData%/Nhayenzalo moi (2.5.54+ doi ten package).
-// Luc app chay lan dau voi ten moi, Electron da tao %AppData%/Nhayenzalo trong nen copy nguyen folder se skip.
-// Can copy rieng tung thu muc/file quan trong neu chua co o dich.
+// v2.5.56 tro lai dinh danh cai dat/userData 9meta de cap nhat de len ban cu.
+// Mot so may da tung chay v2.5.54 voi userData Nhayenzalo; mang cac muc con thieu
+// ve userData hien tai ma khong ghi de du lieu dang co.
 if (!IS_TEST_DISTRIBUTION && process.platform === 'win32') {
   try {
-    const legacyDataPath = path.join(app.getPath('appData'), '9meta');
-    const newDataPath = path.join(app.getPath('appData'), 'Nhayenzalo');
-    if (fs.existsSync(legacyDataPath) && fs.existsSync(newDataPath)) {
+    const targetDataPath = app.getPath('userData');
+    const alternateDataPath = path.join(app.getPath('appData'), 'Nhayenzalo');
+    if (path.resolve(targetDataPath).toLowerCase() !== path.resolve(alternateDataPath).toLowerCase() && fs.existsSync(alternateDataPath)) {
+      fs.mkdirSync(targetDataPath, { recursive: true });
       const critical = ['Partitions', 'workspaces', 'settings.json', 'secure-key.bin', 'secure-meta.json', 'media', 'quick-reply-images', 'backups'];
       for (const name of critical) {
-        const src = path.join(legacyDataPath, name);
-        const dest = path.join(newDataPath, name);
+        const src = path.join(alternateDataPath, name);
+        const dest = path.join(targetDataPath, name);
         if (!fs.existsSync(src) || fs.existsSync(dest)) continue;
         try {
           fs.cpSync(src, dest, { recursive: true, force: false, errorOnExist: false });
-          console.log(`[Migrate] Copied ${name} 9meta -> Nhayenzalo`);
+          console.log(`[Migrate] Restored ${name} Nhayenzalo -> 9meta`);
         } catch (e) { console.error(`[Migrate] copy ${name} failed:`, e?.message || e); }
       }
-      // Cac file config le neu chua co: Preferences, Local State, Network...
       const extraFiles = ['Preferences', 'Local State', 'DIPS', 'DIPS-wal'];
       for (const name of extraFiles) {
-        const src = path.join(legacyDataPath, name);
-        const dest = path.join(newDataPath, name);
+        const src = path.join(alternateDataPath, name);
+        const dest = path.join(targetDataPath, name);
         if (fs.existsSync(src) && !fs.existsSync(dest)) {
           try { fs.copyFileSync(src, dest); } catch {}
         }
       }
-    } else if (fs.existsSync(legacyDataPath) && !fs.existsSync(newDataPath)) {
-      fs.cpSync(legacyDataPath, newDataPath, { recursive: true, force: false, errorOnExist: false });
-      console.log('[Migrate] Copied legacy 9meta userData -> Nhayenzalo (full)');
     }
-  } catch (e) { console.error('[Migrate] legacy 9meta -> Nhayenzalo failed:', e?.message || e); }
+  } catch (e) { console.error('[Migrate] Nhayenzalo -> 9meta failed:', e?.message || e); }
 }
 if (IS_TEST_DISTRIBUTION) {
   const testDataPath = path.join(app.getPath('appData'), 'NhaYenZalo-Test');
@@ -172,7 +169,7 @@ async function focusZaloComposerAndPasteFile(view, filePath) {
 }
 
 const ZALO_URL = 'https://chat.zalo.me';
-const APP_ID = 'com.zalo.desktop';
+const APP_ID = 'com.nhayen.zalo';
 const SIDEBAR_WIDTH = 68;
 const TOPBAR_HEIGHT = 42;
 const DEFAULT_UTILITY_PANEL_WIDTH = 560;
@@ -549,22 +546,32 @@ function seedQuickRepliesFromBundle() {
     }).filter((r) => r.keyword || r.message);
   } catch { return []; }
 }
+function quickReplyBundleIdentity(reply) {
+  const keyword = String(reply?.keyword || '').trim().replace(/^[\\/]+/, '').toLocaleLowerCase('vi-VN');
+  const message = String(reply?.message || '').trim();
+  return `${keyword}\u0000${message}`;
+}
 function getWorkspaceState() {
   const index = loadWorkspaceIndex();
   const data = loadWorkspaceData(index.currentId);
   if (!data.quickReplies.length && settings.quickReplies?.length) data.quickReplies = settings.quickReplies;
-  // Nap san mau khi cai moi: mo khoa xong, workspace van trong va chua seed lan nao.
-  if (!data.quickReplies.length && storeUnlocked) {
+  // v2.5.56: tu phuc hoi may bi rong va bo sung mau con thieu dung mot lan.
+  // Chi ghi co sau khi bundle da duoc doc va workspace luu thanh cong.
+  if (storeUnlocked) {
     try {
-      const seededFlag = path.join(app.getPath('userData'), '.qr-seeded');
-      if (!fs.existsSync(seededFlag)) {
-        const seeded = seedQuickRepliesFromBundle();
-        try { fs.writeFileSync(seededFlag, String(seeded.length)); } catch {}
-        if (seeded.length) {
-          data.quickReplies = seeded;
+      const seededFlag = path.join(app.getPath('userData'), '.qr-seeded-2.5.56');
+      const needsRecovery = !data.quickReplies.length;
+      if (needsRecovery || !fs.existsSync(seededFlag)) {
+        const bundled = seedQuickRepliesFromBundle();
+        if (bundled.length) {
+          const existingIds = new Set((data.quickReplies || []).map(quickReplyBundleIdentity));
+          const missing = bundled.filter((reply) => !existingIds.has(quickReplyBundleIdentity(reply)));
+          if (needsRecovery) data.quickReplies = bundled;
+          else if (missing.length) data.quickReplies = [...data.quickReplies, ...missing];
           saveWorkspaceData(index.currentId, data);
-          settings.quickReplies = seeded;
+          settings.quickReplies = data.quickReplies;
           saveSettings(settings);
+          fs.writeFileSync(seededFlag, String(data.quickReplies.length));
         }
       }
     } catch {}
@@ -863,7 +870,7 @@ async function crmFetch(pathname, options = {}, retry = true) {
 // Pancake POS API: key chi nam o main process, renderer chi duoc goi qua kenh pancake:request.
 const PANCAKE_BASE = 'https://pos.pages.fm/api/v1';
 const PANCAKE_SHOP_ID = '609730';
-const PANCAKE_API_KEY = 'fa7fc274ead84f3e8716f410e2b5ab26';
+const PANCAKE_API_KEY = 'facd13af37f3f3e0844bbb2cd363a38f';
 
 // Chi cho phep cac endpoint doc/ghi don hang cua shop, tranh bi loi dung goi di noi khac.
 function pancakeFetch(pathname, options = {}) {
@@ -2184,17 +2191,34 @@ function createWindow() {
     event.returnValue = { isDarkMode: settings.isDarkMode, alwaysOnTop: settings.alwaysOnTop, blockSeen: settings.blockSeen, blockTyping: settings.blockTyping, zadarkShield: settings.zadarkShield, lockOnStartup: settings.lockOnStartup, hasLockPassword: !!settings.lockPasswordHash, quickReplies: ws.data.quickReplies || [], quicksandFontDataUrl: getQuicksandFontDataUrl() };
   });
   ipcMain.on('workspace-get-state', (event) => { event.returnValue = getWorkspaceState(); });
+  ipcMain.on('secure-status-sync', (event) => {
+    if (!mainWindow || event.sender !== mainWindow.webContents) {
+      event.returnValue = { unlocked: false, locked: true, trusted: false };
+      return;
+    }
+    event.returnValue = {
+      unlocked: storeUnlocked,
+      locked: appLocked || !storeUnlocked,
+      trusted: true,
+      hasLegacyLock: !!settings.lockPasswordHash,
+      remembered: fs.existsSync(SECURE_KEY_PATH),
+    };
+  });
   ipcMain.on('workspace-save-data', (event, data) => {
-    if (!mainWindow || event.sender !== mainWindow.webContents || !storeUnlocked || appLocked) {
-      event.returnValue = { ok: false, message: 'Workspace is locked or request is not trusted.' };
+    if (!mainWindow || event.sender !== mainWindow.webContents) {
+      event.returnValue = { ok: false, code: 'UNTRUSTED_REQUEST', message: 'Yêu cầu lưu không đến từ cửa sổ ứng dụng hợp lệ.' };
+      return;
+    }
+    if (!storeUnlocked || appLocked) {
+      event.returnValue = { ok: false, code: 'STORE_LOCKED', message: 'Dữ liệu đang khóa. Vui lòng mở khóa rồi lưu lại.' };
       return;
     }
     try {
       const state = persistWorkspaceState(data || {});
       broadcastQuickReplies(state.data.quickReplies);
       event.returnValue = state;
-    } catch {
-      event.returnValue = { ok: false, message: 'Workspace could not be saved. Check disk space and permissions; your draft has been kept.' };
+    } catch (error) {
+      event.returnValue = { ok: false, code: 'WRITE_FAILED', message: 'Không ghi được dữ liệu. Hãy kiểm tra dung lượng ổ đĩa và quyền ghi của tài khoản Windows.', detail: error?.code || '' };
     }
   });
   ipcMain.on('workspace-create', (event, name) => {
@@ -2375,9 +2399,9 @@ function createWindow() {
     catch (error) { return { ok: false, message: error.message || String(error) }; }
   });
 
-  // Nút "Chèn": bảo đảm tiện ích đã bắt tay với tab Zalo rồi mới điền mẫu, không gửi tin.
-  // Chữ được dán bằng webContents.insertText (giống panel Báo giá) cho chắc chắn,
-  // vì execCommand('insertText') trên ô soạn contenteditable của Zalo hay thất bại.
+  // Nút "Chèn": tiện ích tự dựng từng dòng thành block trong ô soạn Zalo (một nhịp JS
+  // duy nhất) rồi main chỉ đưa focus về tab. Không dùng webContents.insertText vì
+  // \n không được contenteditable của Zalo quy thành xuống dòng, gửi đi mất từ dòng 2.
   ipcMain.handle('quick-reply:test-template', async (event, replyId) => {
     if (!mainWindow || event.sender !== mainWindow.webContents) return { ok: false, message: 'Nguồn yêu cầu không hợp lệ.' };
     const view = activeProfileId && browserViews[activeProfileId];
@@ -2394,17 +2418,12 @@ function createWindow() {
         true,
       );
       if (!result?.ok) return result || { ok: false, message: 'Không nhận được phản hồi từ tab Zalo.' };
-      if (result.doneByMain) {
-        view.webContents.focus();
-        view.webContents.insertText(String(result.finalMessage || ''));
-        const keyword = String(result.keyword || '');
-        await view.webContents.executeJavaScript(
-          `(window.__DepLaoFinalizeQuickReply ? window.__DepLaoFinalizeQuickReply(${JSON.stringify(result)}) : null)`,
-        ).catch(() => {});
-        return { ok: true, message: `Đã điền mẫu \\${keyword}. Nhấn Enter trong Zalo để gửi.` };
-      }
       view.webContents.focus();
-      return result;
+      const keyword = String(result.keyword || '');
+      await view.webContents.executeJavaScript(
+        `(window.__DepLaoFinalizeQuickReply ? window.__DepLaoFinalizeQuickReply(${JSON.stringify(result)}) : null)`,
+      ).catch(() => {});
+      return { ok: true, message: `Đã điền mẫu \\${keyword}. Nhấn Enter trong Zalo để gửi.` };
     } catch (err) {
       return { ok: false, message: `Không chạy được mẫu: ${err.message || err}` };
     }
@@ -2645,8 +2664,12 @@ function createWindow() {
         })();
       `);
       if (!focusResult?.ok) return focusResult;
+      // Chèn bằng helper trong trang (dựng từng dòng thành block) để xuống dòng không bị mất.
+      const insertResult = await view.webContents.executeJavaScript(
+        `(window.__DepLaoInsertComposerText ? window.__DepLaoInsertComposerText(${JSON.stringify(String(message))}) : { ok: false, message: 'Tab Zalo chưa nạp xong tiện ích nhà yến.' })`,
+      );
+      if (!insertResult?.ok) return insertResult || { ok: false, message: 'Không chèn được nội dung báo giá vào ô soạn tin.' };
       view.webContents.focus();
-      view.webContents.insertText(String(message));
       return { ok: true, message: 'Đã chèn báo giá. Nội dung chưa được gửi.' };
     } catch (error) { return { ok: false, message: error.message || String(error) }; }
   });

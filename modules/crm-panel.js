@@ -40,7 +40,9 @@ function mappingKey(profileId, groupId) {
 
 function extractOrderCode(groupName) {
   const name = clean(groupName);
+  // Chat names such as "Nhi" or "ALL" must not become automatic order searches.
   const match = name.match(/^#?([A-Za-z][A-Za-z0-9_-]{2,39})(?:\s|$)/);
+  if (match && !/\d/.test(match[1])) return '';
   return match ? match[1] : '';
 }
 
@@ -106,8 +108,18 @@ function calculateStandardQuote({ type = 'nhunu', quantity = 0, emboss = false, 
   };
 }
 
+// Báo giá "tiêu chuẩn" dưới 400 thiệp dùng chung bảng giá với ánh nhũ, nên nội dung
+// chèn ra phải ghi đúng loại giấy thật sự dùng để báo.
+const STANDARD_FALLBACK_TO_NHUNU_MAX_QTY = 399;
+
+function quoteTextType(type, quantity) {
+  if (type === 'standard' && Number(quantity) > 0 && Number(quantity) <= STANDARD_FALLBACK_TO_NHUNU_MAX_QTY) return 'nhunu';
+  return type;
+}
+
 function buildQuoteText(options = {}) {
-  const result = calculateStandardQuote(options);
+  const effectiveOptions = { ...options, type: quoteTextType(options.type, options.quantity) };
+  const result = calculateStandardQuote(effectiveOptions);
   if (!result.valid) return '';
   const typeLabel = result.type === 'standard' ? 'GIẤY TIÊU CHUẨN KHÔNG MÙI' : result.type === 'gap3in1' ? 'GIẤY ÁNH NHŨ GẬP 3IN1' : 'GIẤY ÁNH NHŨ LẤP LÁNH NƯỚC HOA THƠM';
   const lines = [

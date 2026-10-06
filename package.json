@@ -1,6 +1,6 @@
 {
-  "name": "Nhayenzalo",
-  "version": "2.5.54",
+  "name": "9meta",
+  "version": "2.5.56",
   "description": "Nhà Yến Zalo - Quản lý nhiều tài khoản, người dùng và nhóm Zalo trên Desktop.",
   "main": "main.js",
   "scripts": {
@@ -74,7 +74,7 @@
       "include": "build/installer-access-code.nsh"
     },
     "releaseInfo": {
-      "releaseNotes": "2.5.53:\n- Sửa lỗi Tạo đơn báo \"Chưa có thông tin kho hàng\": tách rõ nguyên nhân lỗi tải danh sách kho, hiển thị lý do chi tiết và hướng dẫn mở tab Pancake để tải lại.\n- Đơn thiết kế: thêm 3 thuộc tính GẤP / Có phí thiết kế (100.000đ) / Outsource, đồng bộ 2 chiều với Nhà Yến POS, chỉ lưu khi bấm Tạo/Cập nhật.\n- Đơn thiết kế: thêm khối Lịch sử hoạt động (tạo đơn, đổi trạng thái/Designer/deadline/số mẫu/ghi chú, bật/tắt GẤP/Có phí/Outsource) dùng lịch sử chung của POS.\n- Pancake: cho phép Tạo đơn nhanh không cần sản phẩm (items: []), đơn 0đ, không tự gắn \"Tiền đặt cọc\"/sản phẩm giả, có nút Hủy đơn thử.\n- Ổn định phiên Zalo và các sửa nhỏ khác từ nhánh 2.5.42-ctotest."
+      "releaseNotes": "Nhà Yến Zalo v2.5.56:\n- Sửa lỗi không lưu được tài khoản trên một số máy nhân viên và bắt buộc mở khóa dữ liệu đúng trạng thái.\n- Phân biệt rõ lỗi khóa dữ liệu, lỗi quyền ghi Windows và yêu cầu không hợp lệ.\n- Khôi phục dữ liệu còn thiếu từ thư mục Nhayenzalo về 9meta mà không ghi đè dữ liệu hiện có.\n- Tích hợp sẵn thư viện video và đầy đủ bộ Tin nhắn nhanh dùng trigger dấu \\.\n- Giữ nguyên các sửa lỗi tạo đơn Pancake, bộ cài đặt và logo ứng dụng."
     },
     "publish": [
       {
@@ -96,7 +96,7 @@
   "author": "Tiodev71",
   "license": "MIT",
   "devDependencies": {
-    "electron": "44.3.0",
+    "electron": "44.5.1",
     "electron-builder": "26.15.3"
   },
   "dependencies": {
