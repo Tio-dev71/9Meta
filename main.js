@@ -2427,31 +2427,23 @@ function createWindow() {
       return { ok: false, message: `Không chạy được mẫu: ${err.message || err}` };
     }
   });
-  // Chữ tin nhắn nhanh phải đi qua thao tác dán thật (Ctrl+A rồi Ctrl+V): ô chat Zalo
-  // là Lexical, chữ chèn bằng DOM/execCommand chỉ hiện trên màn hình nên đè placeholder
-  // và Enter chỉ gửi ảnh. Dán thật thì Lexical ghi nhận cả chữ lẫn xuống dòng.
+  // Chữ tin nhắn nhanh phải đi qua thao tác dán thật (Ctrl+V): ô chat Zalo là Lexical,
+  // chữ chèn bằng DOM/execCommand chỉ hiện trên màn hình nên đè placeholder và Enter
+  // chỉ gửi ảnh. Trang đã tự chọn sẵn token \keyword nên Ctrl+V thay đúng đoạn đó.
   ipcMain.handle('quick-reply:paste-text', async (event, text) => {
     if (!storeUnlocked || appLocked) return { ok: false, locked: true, message: 'App locked.' };
     const view = Object.values(browserViews).find((entry) => entry?.webContents === event.sender);
     if (!view) return { ok: false, message: 'Tab Zalo không hợp lệ.' };
     const normalized = String(text ?? '').replace(/\r\n?/g, '\n');
-    if (normalized.length > 20000) return { ok: false, message: 'Nội dung quá dài.' };
-    // Chỉ cho dán chữ kết thúc bằng một mẫu tin nhắn nhanh đã lưu (phần trước là chữ người dùng gõ sẵn).
+    if (!normalized) return { ok: false, message: 'Mẫu không có nội dung chữ.' };
+    // Chỉ cho dán đúng nội dung một mẫu tin nhắn nhanh đã lưu.
     const templates = (getWorkspaceState().data.quickReplies || [])
-      .map((reply) => String(reply.message || '').replace(/\r\n?/g, '\n'))
-      .filter(Boolean);
-    if (normalized && !templates.some((message) => normalized.endsWith(message))) {
+      .map((reply) => String(reply.message || '').replace(/\r\n?/g, '\n'));
+    if (!templates.includes(normalized)) {
       return { ok: false, message: 'Nội dung không thuộc danh sách tin nhắn nhanh.' };
     }
     if (event.sender.isDestroyed()) return { ok: false, message: 'Paste cancelled.' };
     event.sender.focus();
-    event.sender.sendInputEvent({ type: 'keyDown', keyCode: 'A', modifiers: ['control'] });
-    event.sender.sendInputEvent({ type: 'keyUp', keyCode: 'A', modifiers: ['control'] });
-    if (!normalized) {
-      event.sender.sendInputEvent({ type: 'keyDown', keyCode: 'Backspace' });
-      event.sender.sendInputEvent({ type: 'keyUp', keyCode: 'Backspace' });
-      return { ok: true, chars: 0 };
-    }
     clipboard.writeText(normalized);
     event.sender.sendInputEvent({ type: 'keyDown', keyCode: 'V', modifiers: ['control'] });
     event.sender.sendInputEvent({ type: 'keyUp', keyCode: 'V', modifiers: ['control'] });

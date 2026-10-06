@@ -772,20 +772,23 @@ test('multi-line inserts build one block per line inside Zalo, no insertText rac
   assert.doesNotMatch(quoteHandler, /webContents\.insertText\(String\(message\)\)/);
 });
 
-test('quick reply writes text before pasting the image so Enter sends both', () => {
+test('quick reply pastes the image first, then real-pastes text over the \\keyword token', () => {
   const preload = fs.readFileSync(path.join(root, 'preload.js'), 'utf8');
+  const main = fs.readFileSync(path.join(root, 'main.js'), 'utf8');
   const body = preload.slice(preload.indexOf('async function applyQuickReply('), preload.indexOf('window.__DepLaoFinalizeQuickReply'));
-  // Dung chu truoc, danh anh sau: Zalo chi tin editor da co state chu moi tinh ca hai khi Enter.
-  const textAt = body.indexOf('await fillComposerWithRealPaste(targetInput, finalMessage)');
+  // Anh dan ngay (nhanh nhu ban cu), chu dan that sau de Lexical ghi nhan.
   const pasteAt = body.indexOf('pasteQuickReplyImage(imagePath)');
+  const textAt = body.indexOf('await fillComposerWithRealPaste(targetInput, String(reply.message');
   assert.ok(textAt > 0 && pasteAt > 0);
-  assert.ok(textAt < pasteAt, 'phai dung chu truoc roi danh anh');
-  // Dinh lai chu sau khi anh ve, de Zalo khong bo chi do len state gui.
+  assert.ok(pasteAt < textAt, 'phai dan anh truoc roi moi dan chu');
   assert.match(body, /await waitForComposerImage\(before, QUICK_REPLY_IMAGE_TIMEOUT_MS\)/);
-  assert.match(body, /if \(!String\(composerTextValue\(targetInput\)\)\.trim\(\)\) \{\s*await fillComposerWithRealPaste/);
-  // Chu phai di qua thao tac dan that de Lexical ghi nhan, khong chi dung DOM.
+  // Chon dung token \keyword thay vi Ctrl+A, cho chu khop theo kieu "chua" de khong cho oan.
+  assert.match(preload, /function selectQuickReplyToken\(targetInput\)/);
+  assert.match(preload, /have\.indexOf\(want\) >= 0/);
   assert.match(preload, /pasteQuickReplyText: \(text\) => ipcRenderer\.invoke\('quick-reply:paste-text', text\)/);
-  assert.match(preload, /await waitForComposerText\(targetInput, text, 2500\)/);
+  const pasteText = main.slice(main.indexOf("ipcMain.handle('quick-reply:paste-text'"), main.indexOf("ipcMain.handle('quick-reply:paste-image'"));
+  assert.doesNotMatch(pasteText, /keyCode: 'A'/);
+  assert.match(pasteText, /templates\.includes\(normalized\)/);
   // Dán anh that bai thi giu chu da dung va bao nhung khong bao loi chung.
   assert.match(body, /stage: 'paste-warn'/);
   assert.doesNotMatch(body, /stage: 'preview'/);

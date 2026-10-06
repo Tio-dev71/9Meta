@@ -385,31 +385,60 @@ function runInjection(currentSettings) {
         return String(text || '').replace(/\s+/g, '');
       }
 
+      // Chỉ cần ô soạn CHỨA nội dung mẫu (phần chữ gõ trước \ được giữ nguyên).
       function waitForComposerText(targetInput, expected, timeoutMs) {
         var want = normalizeComposerCompare(expected);
         return new Promise(function(resolve) {
           var deadline = Date.now() + timeoutMs;
           (function poll() {
             var have = normalizeComposerCompare(composerTextValue(targetInput));
-            if (want ? have === want : !have) { resolve(true); return; }
+            if (want ? have.indexOf(want) >= 0 : !have) { resolve(true); return; }
             if (Date.now() >= deadline) { resolve(false); return; }
-            setTimeout(poll, 60);
+            setTimeout(poll, 40);
           })();
         });
       }
 
+      // Chọn đúng đoạn từ dấu \ cuối cùng tới hết ô soạn (token \keyword); không có
+      // dấu \ (nút "Chèn") thì chọn cả ô. Lexical theo dõi vùng chọn của trang nên
+      // lần Ctrl+V thật sau đó sẽ thay đúng đoạn này.
+      function selectQuickReplyToken(targetInput) {
+        var trigger = String.fromCharCode(92);
+        var walker = document.createTreeWalker(targetInput, NodeFilter.SHOW_TEXT, null);
+        var lastNode = null, lastOffset = -1, endNode = null, node;
+        while ((node = walker.nextNode())) {
+          endNode = node;
+          var idx = node.nodeValue.lastIndexOf(trigger);
+          if (idx >= 0) { lastNode = node; lastOffset = idx; }
+        }
+        var selection = window.getSelection && window.getSelection();
+        if (!selection) return;
+        var range = document.createRange();
+        if (lastNode) {
+          range.setStart(lastNode, lastOffset);
+          range.setEnd(endNode, endNode.nodeValue.length);
+        } else {
+          range.selectNodeContents(targetInput);
+        }
+        selection.removeAllRanges();
+        selection.addRange(range);
+      }
+
       // Ô chat Zalo là Lexical: chữ dựng bằng DOM/execCommand chỉ hiện trên màn hình,
-      // state gửi đi vẫn rỗng (đè placeholder, Enter chỉ gửi ảnh). Nhờ main bấm
-      // Ctrl+A rồi Ctrl+V chữ thật để Lexical tự ghi nhận, thay luôn token \keyword.
-      async function fillComposerWithRealPaste(targetInput, text) {
+      // state gửi đi vẫn rỗng (đè placeholder, Enter chỉ gửi ảnh). Chọn token \keyword
+      // rồi nhờ main bấm Ctrl+V chữ thật để Lexical tự ghi nhận.
+      async function fillComposerWithRealPaste(targetInput, message, finalMessage) {
         targetInput.focus();
         if (targetInput.value === undefined && window.messengerApp && window.messengerApp.pasteQuickReplyText) {
+          selectQuickReplyToken(targetInput);
+          // Cho Lexical kịp nhận sự kiện selectionchange trước khi dán.
+          await new Promise(function(resolve) { setTimeout(resolve, 30); });
           var res = null;
-          try { res = await window.messengerApp.pasteQuickReplyText(text); } catch (e) { res = null; }
-          if (res && res.ok && await waitForComposerText(targetInput, text, 2500)) return true;
+          try { res = await window.messengerApp.pasteQuickReplyText(message); } catch (e) { res = null; }
+          if (res && res.ok && await waitForComposerText(targetInput, message, 1500)) return true;
         }
         clearComposerText(targetInput);
-        return insertComposerTextInPage(targetInput, text);
+        return insertComposerTextInPage(targetInput, finalMessage);
       }
 
       async function applyQuickReply(targetInput, reply, typedText, viaMain) {
@@ -423,26 +452,25 @@ function runInjection(currentSettings) {
           var trigger = String.fromCharCode(92);
           var triggerIndex = currentText.lastIndexOf(trigger);
           var finalMessage = (triggerIndex >= 0 ? currentText.slice(0, triggerIndex) : '') + String(reply.message || '');
-          // Dựng chữ TRƯỚC khi dán ảnh: Zalo đọc \n thành xuống dòng qua editing engine,
-          // tránh cảnh Enter chỉ gửi được ảnh còn chữ bị coi là rỗng (đè tin).
           clearComposerNotice();
-          await fillComposerWithRealPaste(targetInput, finalMessage);
+          // Dán ảnh NGAY (như bản cũ) cho nhanh; ảnh nằm ở khung đính kèm riêng nên
+          // lần dán chữ sau không làm mất ảnh. Chờ ảnh hiện để clipboard ảnh không bị
+          // chữ ghi đè trước khi Zalo kịp đọc.
           var imagePath = String(reply.imagePath || '').trim();
+          var imageWarn = null;
           if (imagePath) {
             var before = composerPendingImageNodes(composerRoot()).length;
             var paste = null;
             try { paste = await window.messengerApp.pasteQuickReplyImage(imagePath); }
             catch (err) { paste = { ok: false, message: String((err && err.message) || err) }; }
-            if (!paste || !paste.ok) {
-              showQuickReplyNotice('Mẫu ' + trigger + keyword + ' không chèn được ảnh: ' + ((paste && paste.message) || 'lỗi không rõ') + '. Tin nhắn chữ đã được điền, ảnh chưa có.');
-              return { ok: true, stage: 'paste-warn', message: (paste && paste.message) || 'Không dán được ảnh.', keyword: keyword };
-            }
-            await waitForComposerImage(before, QUICK_REPLY_IMAGE_TIMEOUT_MS);
-            // Đồng bộ lại chữ sau khi dán ảnh: một số bản Zalo reset editor khi ảnh về,
-            // khiến chữ bị rớt khỏi state gửi dù vẫn hiển thị.
-            if (!String(composerTextValue(targetInput)).trim()) {
-              await fillComposerWithRealPaste(targetInput, finalMessage);
-            }
+            if (!paste || !paste.ok) imageWarn = (paste && paste.message) || 'Không dán được ảnh.';
+            else await waitForComposerImage(before, QUICK_REPLY_IMAGE_TIMEOUT_MS);
+          }
+          // Chữ đi qua thao tác dán thật để Lexical ghi nhận -> Enter gửi cả chữ lẫn ảnh.
+          await fillComposerWithRealPaste(targetInput, String(reply.message || ''), finalMessage);
+          if (imageWarn) {
+            showQuickReplyNotice('Mẫu ' + trigger + keyword + ' không chèn được ảnh: ' + imageWarn + '. Tin nhắn chữ đã được điền, ảnh chưa có.');
+            return { ok: true, stage: 'paste-warn', message: imageWarn, keyword: keyword };
           }
           if (viaMain) return { ok: true, doneByMain: true, finalMessage: finalMessage, keyword: keyword };
           return { ok: true, keyword: keyword };
