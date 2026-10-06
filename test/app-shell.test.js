@@ -367,10 +367,31 @@ test('utility panes are mutually exclusive and design orders load only when the 
   assert.match(renderer, /function isLikelyOrderCode\(value\)/);
   // Ma don chuan hoa chu hoa truoc khi tra chinh xac; Tìm voi orderCode luon goi moi.
   assert.match(renderer, /getElementById\('design-search'\)\.value\.trim\(\)\.toUpperCase\(\)/);
-  assert.match(renderer, /if \(search\) params\.set\('search', search\)/);
-  assert.match(renderer, /codeOf\(order\) === search/);
-  assert.match(renderer, /if \(exactCode\)/);
+  // Chi tim khi bam Tim/Enter, chi nhan ma day du va loc trung khop chinh xac.
+  assert.match(renderer, /if \(!isLikelyOrderCode\(search\)\)/);
+  assert.match(renderer, /toUpperCase\(\) === search/);
+  assert.doesNotMatch(renderer, /tab === 'design'\) loadDesignOrders/);
+  assert.doesNotMatch(renderer, /designStatusFilter/);
+  assert.doesNotMatch(html, /class="design-chips"/);
   assert.match(renderer, /getElementById\('design-search-btn'\)\.onclick/);
+});
+
+test('conversation links open in Chrome and capture Zalo about:blank popups', () => {
+  const main = fs.readFileSync(path.join(root, 'main.js'), 'utf8');
+  assert.match(main, /function findChromeExecutable\(\)/);
+  assert.match(main, /function captureBlankPopup\(win\)/);
+  assert.match(main, /did-create-window/);
+  assert.match(main, /show: false, skipTaskbar: true/);
+});
+
+test('what is new popup shows once per version using package release notes', () => {
+  const main = fs.readFileSync(path.join(root, 'main.js'), 'utf8');
+  const html = fs.readFileSync(path.join(root, 'update-notice.html'), 'utf8');
+  assert.match(main, /last-seen-version\.txt/);
+  assert.match(main, /if \(lastSeen === current\) return;/);
+  assert.match(main, /build\?\.releaseInfo\?\.releaseNotes/);
+  assert.match(main, /'update-notice:ready', \(event\) => event\.sender\.send\('update-notice-state', currentNoticeState\(\)\)/);
+  assert.match(html, /state\.status==='whatsnew'\?'update-notice:defer'/);
 });
 
 test('Pancake and design panels use compact single-panel workflows', () => {
@@ -958,7 +979,7 @@ test('design orders connect directly to Nh? Y?n POS without legacy Zalo CRM mapp
   assert.match(html, /id="crm-base-url"[^>]*value="https:\/\/nhayenpos\.web\.app"/);
   assert.match(html, /K&#7871;t n&#7889;i Nh&#224; Y&#7871;n POS/);
   assert.match(renderer, /localStorage\.getItem\('nha-yen-pos-url'\) \|\| 'https:\/\/nhayenpos\.web\.app'/);
-  assert.match(renderer, /await Promise\.allSettled\(\[loadDesigners\(\), loadDesignOrders\(\)\]\)/);
+  assert.doesNotMatch(renderer, /Promise\.allSettled\(\[loadDesigners\(\), loadDesignOrders\(\)\]\)/);
   assert.doesNotMatch(renderer.slice(renderer.indexOf("document.getElementById('crm-login').onclick"), renderer.indexOf("const mappingSaveButton")), /resolveCrmConversation|crm-account-select|syncQuickRepliesFromCrm/);
   const saveHandler = renderer.slice(renderer.indexOf("document.getElementById('design-save').onclick"), renderer.indexOf("document.getElementById('utility-panel-hide').onclick"));
   assert.doesNotMatch(saveHandler, /resolveCrmConversation|conversationId/);

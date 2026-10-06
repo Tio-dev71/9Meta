@@ -967,8 +967,8 @@ function startQuickTunnel(targetUrl) {
 function setUpdateState(patch) {
   updateState = { ...updateState, ...patch };
   sendToRenderer('update-state', updateState);
-  if (updateNoticeWindow && !updateNoticeWindow.isDestroyed()) updateNoticeWindow.webContents.send('update-notice-state', updateState);
-  if (updateState.status === 'available' || updateState.status === 'downloaded') showUpdateNotice();
+  if (updateNoticeWindow && !updateNoticeWindow.isDestroyed() && !whatsNewState) updateNoticeWindow.webContents.send('update-notice-state', updateState);
+  if (updateState.status === 'available' || updateState.status === 'downloaded') { whatsNewState = null; showUpdateNotice(); }
 }
 
 function normalizeQuickReplyShortcut(value) {
@@ -1062,15 +1062,30 @@ async function syncQuickRepliesFromCrm() {
   broadcastQuickReplies(replies);
   return { total: replies.length, crmTotal: templates.length, added, updated, unchanged, images, imageErrors };
 }
+// Popup "Có gì mới" hiện đúng một lần sau khi app vừa lên phiên bản mới.
+let whatsNewState = null;
+const LAST_SEEN_VERSION_PATH = path.join(app.getPath('userData'), 'last-seen-version.txt');
+function showWhatsNewOnce() {
+  const current = app.getVersion();
+  let lastSeen = '';
+  try { lastSeen = fs.readFileSync(LAST_SEEN_VERSION_PATH, 'utf8').trim(); } catch { }
+  if (lastSeen === current) return;
+  try { fs.writeFileSync(LAST_SEEN_VERSION_PATH, current, 'utf8'); } catch { }
+  const releaseNotes = String(require('./package.json').build?.releaseInfo?.releaseNotes || '').trim();
+  if (!releaseNotes) return;
+  whatsNewState = { status: 'whatsnew', version: current, releaseNotes };
+  showUpdateNotice();
+}
+function currentNoticeState() { return whatsNewState || updateState; }
 function showUpdateNotice() {
   if (!mainWindow || mainWindow.isDestroyed()) return;
   if (updateNoticeWindow && !updateNoticeWindow.isDestroyed()) {
-    updateNoticeWindow.show(); updateNoticeWindow.focus(); updateNoticeWindow.webContents.send('update-notice-state', updateState); return;
+    updateNoticeWindow.show(); updateNoticeWindow.focus(); updateNoticeWindow.webContents.send('update-notice-state', currentNoticeState()); return;
   }
   updateNoticeWindow = new BrowserWindow({ width:440, height:480, parent:mainWindow, modal:false, show:false, resizable:false, minimizable:false, maximizable:false, fullscreenable:false, autoHideMenuBar:true, title:'Bản cập nhật Nhà Yến Zalo', backgroundColor:'#ffffff', webPreferences:{ nodeIntegration:true, contextIsolation:false, spellcheck:false } });
   updateNoticeWindow.loadFile('update-notice.html');
-  updateNoticeWindow.once('ready-to-show', () => { if (updateNoticeWindow && !updateNoticeWindow.isDestroyed()) { updateNoticeWindow.show(); updateNoticeWindow.webContents.send('update-notice-state', updateState); } });
-  updateNoticeWindow.on('closed', () => { updateNoticeWindow = null; });
+  updateNoticeWindow.once('ready-to-show', () => { if (updateNoticeWindow && !updateNoticeWindow.isDestroyed()) { updateNoticeWindow.show(); updateNoticeWindow.webContents.send('update-notice-state', currentNoticeState()); } });
+  updateNoticeWindow.on('closed', () => { updateNoticeWindow = null; whatsNewState = null; });
 }
 function hashPassword(password, salt = crypto.randomBytes(16).toString('hex')) {
   const hash = crypto.pbkdf2Sync(password, salt, 120000, 32, 'sha256').toString('hex');
@@ -1213,6 +1228,53 @@ function updateBrowserViewBounds() {
 function isInternalUrl(url) {
   return ['chat.zalo.me', 'id.zalo.me', 'messenger.com', 'facebook.com', 'web.whatsapp.com', 'whatsapp.com', 'teams.microsoft.com', 'microsoft.com', 'live.com', 'office.com', 'google.com', 'gmail.com', 'web.telegram.org', 'telegram.org', 't.me'].some(d => { try { const parsed = new URL(url); return parsed.protocol === 'https:' && !parsed.username && !parsed.password && (parsed.hostname === d || parsed.hostname.endsWith('.' + d)); } catch { return false; } });
 }
+// Link ngoài trong hội thoại mở bằng Chrome (tab mới trong Chrome đang mở);
+// máy không cài Chrome thì dùng trình duyệt mặc định của hệ điều hành.
+function findChromeExecutable() {
+  const candidates = process.platform === 'win32'
+    ? [process.env.PROGRAMFILES, process.env['PROGRAMFILES(X86)'], process.env.LOCALAPPDATA]
+      .filter(Boolean).map((base) => path.join(base, 'Google', 'Chrome', 'Application', 'chrome.exe'))
+    : process.platform === 'darwin' ? ['/Applications/Google Chrome.app/Contents/MacOS/Google Chrome'] : [];
+  return candidates.find((candidate) => { try { return fs.existsSync(candidate); } catch { return false; } }) || null;
+}
+function openExternalLink(rawUrl) {
+  let finalUrl = String(rawUrl || '').trim();
+  if (!finalUrl) return;
+  if (!/^(https?:|mailto:)/i.test(finalUrl)) finalUrl = 'https://' + finalUrl;
+  let parsed;
+  try { parsed = new URL(finalUrl); } catch { return; }
+  if (parsed.protocol === 'http:' || parsed.protocol === 'https:') {
+    const chrome = findChromeExecutable();
+    if (chrome) {
+      try {
+        const child = spawn(chrome, [parsed.href], { detached: true, stdio: 'ignore', windowsHide: false });
+        child.on('error', () => shell.openExternal(parsed.href).catch(() => { }));
+        child.unref();
+        return;
+      } catch { /* rơi xuống trình duyệt mặc định */ }
+    }
+  }
+  shell.openExternal(parsed.href).catch(err => console.error('[Main] Lỗi mở external link:', parsed.href, err));
+}
+// Zalo mở link bằng window.open('about:blank') rồi mới gán địa chỉ thật: giữ cửa sổ
+// đó ẩn, bắt điều hướng đầu tiên để mở ra Chrome rồi đóng, không để lộ popup trắng.
+function captureBlankPopup(win) {
+  let done = false;
+  const finish = () => { done = true; if (!win.isDestroyed()) win.destroy(); };
+  const timer = setTimeout(() => { if (!done) finish(); }, 15000);
+  const handle = (event, url) => {
+    if (done || !url || url === 'about:blank') return;
+    if (isInternalUrl(url)) { clearTimeout(timer); done = true; if (!win.isDestroyed()) win.show(); return; }
+    if (event?.preventDefault) event.preventDefault();
+    clearTimeout(timer);
+    openExternalLink(url);
+    finish();
+  };
+  win.webContents.on('will-navigate', handle);
+  win.webContents.on('will-redirect', handle);
+  win.webContents.setWindowOpenHandler(({ url }) => { handle(null, url); return { action: 'deny' }; });
+  win.on('closed', () => clearTimeout(timer));
+}
 function getProfilePlatform(profileId) {
   try {
     const ws = getWorkspaceState();
@@ -1264,12 +1326,16 @@ function setupWebContents(contents, profileId) {
     sendToRenderer('profile-connection-state', { id: profileId, state: recovery.snapshot().state });
   });
   contents.setWindowOpenHandler(({ url }) => {
-    if (url === 'about:blank' || url.startsWith('blob:') || url.startsWith('file:')) return { action: 'allow' };
+    if (!url || url === 'about:blank') {
+      return { action: 'allow', overrideBrowserWindowOptions: { show: false, skipTaskbar: true, width: 400, height: 300 } };
+    }
+    if (url.startsWith('blob:') || url.startsWith('file:')) return { action: 'allow' };
     if (isInternalUrl(url)) return { action: 'allow' };
-    let finalUrl = url;
-    if (!finalUrl.startsWith('http://') && !finalUrl.startsWith('https://') && !finalUrl.startsWith('mailto:')) finalUrl = 'https://' + finalUrl;
-    shell.openExternal(finalUrl).catch(err => console.error('[Main] Lỗi mở external link:', finalUrl, err));
+    openExternalLink(url);
     return { action: 'deny' };
+  });
+  contents.on('did-create-window', (win, details) => {
+    if (!details?.url || details.url === 'about:blank') captureBlankPopup(win);
   });
   contents.on('will-navigate', (event, url) => {
     // Allow free navigation for custom platform profiles
@@ -1280,9 +1346,7 @@ function setupWebContents(contents, profileId) {
     if (ownerProfileId && getProfilePlatform(ownerProfileId) === 'custom') return;
     if (isInternalUrl(url)) return;
     event.preventDefault();
-    let finalUrl = url;
-    if (!finalUrl.startsWith('http://') && !finalUrl.startsWith('https://') && !finalUrl.startsWith('mailto:')) finalUrl = 'https://' + finalUrl;
-    shell.openExternal(finalUrl).catch(err => console.error('[Main] Lỗi mở external link:', finalUrl, err));
+    openExternalLink(url);
   });
   contents.on('context-menu', (event, params) => {
     const menu = new Menu();
@@ -1294,7 +1358,7 @@ function setupWebContents(contents, profileId) {
     }
     if (params.linkURL) {
       menu.append(new MenuItem({ type: 'separator' }));
-      menu.append(new MenuItem({ label: '🔗 Mở liên kết', click: () => shell.openExternal(params.linkURL) }));
+      menu.append(new MenuItem({ label: '🔗 Mở liên kết', click: () => openExternalLink(params.linkURL) }));
       menu.append(new MenuItem({ label: '📋 Sao chép liên kết', click: () => require('electron').clipboard.writeText(params.linkURL) }));
     }
     if (params.mediaType === 'image') {
@@ -3144,7 +3208,7 @@ function createWindow() {
   ipcMain.on('download-update', () => autoUpdater.downloadUpdate().catch(err => setUpdateState({ status: 'error', message: (err.message || err.toString()).split('\n')[0] })));
   ipcMain.on('install-update', () => { isQuitting = true; autoUpdater.quitAndInstall(); });
   ipcMain.on('get-update-state', () => sendToRenderer('update-state', updateState));
-  ipcMain.on('update-notice:ready', (event) => event.sender.send('update-notice-state', updateState));
+  ipcMain.on('update-notice:ready', (event) => event.sender.send('update-notice-state', currentNoticeState()));
   ipcMain.on('update-notice:defer', () => updateNoticeWindow?.close());
   ipcMain.on('update-notice:download', () => autoUpdater.downloadUpdate().catch(err => setUpdateState({ status: 'error', message: (err.message || err.toString()).split('\n')[0] })));
   ipcMain.on('update-notice:install', () => { isQuitting = true; autoUpdater.quitAndInstall(); });
@@ -3225,6 +3289,7 @@ app.whenReady().then(() => {
   createTray();
   registerGlobalShortcuts();
   setupAutoUpdater();
+  if (mainWindow) mainWindow.once('ready-to-show', () => setTimeout(showWhatsNewOnce, 1500));
   // Chuẩn hóa ảnh mẫu sang PNG thật một lần, sau khi cửa sổ chính đã sẵn sàng.
   void migrateQuickReplyImagesToPng()
     .then((result) => {

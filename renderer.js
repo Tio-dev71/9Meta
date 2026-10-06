@@ -134,7 +134,6 @@ let crmConnected = false;
 let crmAccounts = [];
 let crmConversation = null;
 let selectedDesignOrder = null;
-let designStatusFilter = '';
 let pancakeWarehouses = [];
 let pancakeProducts = [];
 let pancakeProductCache = null;
@@ -569,7 +568,6 @@ async function setUtilityTab(tab) {
   }
   // orders tab: Don Pancake chi can Pancake API, khong can CRM; design tab van can CRM
   if (tab === 'orders') void Promise.allSettled([refreshPancakeCurrent(), loadPancakeWarehouses(), loadPancakeOrders()]);
-  if (crmConnected && tab === 'design') void Promise.allSettled([loadDesigners(), loadDesignOrders()]);
 }
 
 function setUtilityPanelOpen(open, tab = currentUtilityTab) {
@@ -935,13 +933,16 @@ function fillDesignForm(order = null) {
   document.getElementById('design-status').value = order?.status || 'demo';
   document.getElementById('design-files').value = order ? String(order.fileCount ?? 0) : '1';
   document.getElementById('design-deadline').value = order?.deadline ? String(order.deadline).slice(0, 10) : '';
-  document.getElementById('design-designer').value = order?.designerId || order?.designer?.id || '';
+  const designerSelect = document.getElementById('design-designer');
+  designerSelect.dataset.want = order?.designerId || order?.designer?.id || '';
+  designerSelect.value = designerSelect.dataset.want;
   document.getElementById('design-note').value = order?.notes || '';
   document.getElementById('design-urgent').checked = !!order?.isUrgent;
   document.getElementById('design-fee').checked = !!order?.hasDesignFee;
   document.getElementById('design-outsource').checked = !!order?.isOutsource;
   renderDesignActivity(order?.activities || order?.statusHistory || []);
   document.getElementById('design-save').innerText = order ? 'Cập nhật đơn thiết kế' : 'Tạo đơn thiết kế';
+  void loadDesigners();
 }
 
 function showDesignListView() {
@@ -950,17 +951,23 @@ function showDesignListView() {
   document.getElementById('design-list-view').hidden = false;
 }
 
+// Danh sách designer chỉ cần cho form tạo/sửa đơn: tải một lần khi mở form.
+let designersLoaded = false;
 async function loadDesigners() {
+  if (designersLoaded) return;
   try {
     const data = await crmRequest('/users?role=designer&limit=100');
     const rows = data.users || (Array.isArray(data) ? data : []);
-    document.getElementById('design-designer').innerHTML = '<option value="">Chưa phân công</option>' + rows.map((user) => `<option value="${escapeHtml(user.id)}">${escapeHtml(user.fullName)}</option>`).join('');
-    document.getElementById('design-filter-designer').innerHTML = '<option value="">Tất cả Designer</option>' + rows.map((user) => `<option value="${escapeHtml(user.id)}">${escapeHtml(user.fullName)}</option>`).join('');
+    const select = document.getElementById('design-designer');
+    const current = select.dataset.want || '';
+    select.innerHTML = '<option value="">Chưa phân công</option>' + rows.map((user) => `<option value="${escapeHtml(user.id)}">${escapeHtml(user.fullName)}</option>`).join('');
+    select.value = current;
+    designersLoaded = true;
   } catch { /* quyền xem designer có thể bị giới hạn */ }
 }
 
 let designOrdersRequestId = 0;
-const designOrdersInFlight = new Map();
+const DESIGN_SEARCH_PROMPT = '<div class="utility-empty">Nhập đủ mã đơn (ví dụ D031039) rồi bấm Tìm.</div>';
 function isLikelyOrderCode(value) {
   const code = String(value || '').trim();
   return /^[A-Za-z][A-Za-z0-9_-]{2,39}$/.test(code) && /\d/.test(code);
@@ -969,47 +976,19 @@ function isLikelyOrderCode(value) {
 async function loadDesignOrders() {
   const requestId = ++designOrdersRequestId;
   const list = document.getElementById('design-list');
-  list.innerHTML = '<div class="utility-empty">Đang tải đơn thiết kế…</div>';
+  // Mã đơn lưu trong POS là chữ hoa (D250901): gõ "d250901" cũng phải ra kết quả.
+  const search = document.getElementById('design-search').value.trim().toUpperCase();
+  // Tab chỉ dùng để tìm đúng một mã đơn: không tải cả danh sách, không gọi API khi mã chưa đủ.
+  if (!search) { list.innerHTML = DESIGN_SEARCH_PROMPT; return; }
+  if (!isLikelyOrderCode(search)) { list.innerHTML = `<div class="utility-empty">Mã đơn chưa đầy đủ. Nhập đủ mã, ví dụ D031039.</div>`; return; }
+  list.innerHTML = '<div class="utility-empty">Đang tìm đơn thiết kế…</div>';
   try {
-    // Mã đơn lưu trong POS là chữ hoa (D250901): gõ "d250901" cũng phải ra kết quả.
-    const search = document.getElementById('design-search').value.trim().toUpperCase();
-    const exactCode = isLikelyOrderCode(search);
-    const params = new URLSearchParams({ limit: '50', offset: '0' });
-    // API đang chạy chỉ hiểu `search` (tìm chuỗi con, không phân biệt hoa/thường);
-    // tham số lạ như `orderCode` bị bỏ qua và trả về cả danh sách. Luôn gửi `search`.
-    if (search) params.set('search', search);
-    if (designStatusFilter) params.set('status', designStatusFilter);
-    const designerId = document.getElementById('design-filter-designer')?.value || '';
-    const dateFrom = document.getElementById('design-date-from')?.value || '';
-    const dateTo = document.getElementById('design-date-to')?.value || '';
-    if (designerId) params.set('designerId', designerId);
-    if (dateFrom) params.set('dateFrom', dateFrom);
-    if (dateTo) params.set('dateTo', dateTo);
-    const path = `/orders?${params.toString()}`;
-    let data;
-    if (exactCode) {
-      // Nhấn Tìm với mã đơn phải luôn gọi lại, không dùng request đang bay
-      // để không hiển thị list cũ khi orderCode không khớp (hoa/thường...).
-      data = await crmRequest(path);
-    } else {
-      if (!designOrdersInFlight.has(path)) {
-        const pending = crmRequest(path);
-        designOrdersInFlight.set(path, pending);
-        void pending.finally(() => { if (designOrdersInFlight.get(path) === pending) designOrdersInFlight.delete(path); }).catch(() => {});
-      }
-      data = await designOrdersInFlight.get(path);
-    }
+    // API đang chạy chỉ hiểu `search` (tìm chuỗi con, không phân biệt hoa/thường); lọc lại đúng mã phía app.
+    const data = await crmRequest(`/orders?${new URLSearchParams({ search, limit: '50', offset: '0' })}`);
     if (requestId !== designOrdersRequestId) return;
-    let rows = data.orders || data.items || [];
-    if (search) {
-      // Chốt chặn phía app: chỉ hiển thị đơn có mã chứa chuỗi đã gõ; khớp đúng mã thì chỉ giữ đơn đó.
-      const codeOf = (order) => String(order?.orderCode || '').trim().toUpperCase();
-      rows = rows.filter((order) => codeOf(order).includes(search));
-      const exactRows = rows.filter((order) => codeOf(order) === search);
-      if (exactCode && exactRows.length) rows = exactRows;
-    }
+    const rows = (data.orders || data.items || []).filter((order) => String(order?.orderCode || '').trim().toUpperCase() === search);
     const statusLabels = { demo: 'Chưa demo', designing: 'Thiết kế', approved: 'Chốt in', cancelled: 'Huỷ' };
-    list.innerHTML = rows.length ? rows.map((order, index) => `<button class="design-order-card ${selectedDesignOrder?.id === order.id ? 'selected' : ''}" data-design-index="${index}" type="button"><span class="design-card-top"><strong class="design-code">${escapeHtml(order.orderCode)}</strong><span class="design-status ${escapeHtml(order.status || '')}">${escapeHtml(statusLabels[order.status] || order.status || 'Chưa demo')}</span></span><span class="design-card-bottom"><b>${escapeHtml(order.designer?.fullName || 'Chưa gán')}</b><span>📅 ${escapeHtml(order.deadline ? new Date(order.deadline).toLocaleDateString('vi-VN') : '—')}</span><span>📎 ${Number(order.fileCount) || 0} files</span></span></button>`).join('') : `<div class="utility-empty">${search ? `Không tìm thấy đơn ${escapeHtml(search)}.` : 'Không có đơn hàng nào.'}</div>`;
+    list.innerHTML = rows.length ? rows.map((order, index) => `<button class="design-order-card ${selectedDesignOrder?.id === order.id ? 'selected' : ''}" data-design-index="${index}" type="button"><span class="design-card-top"><strong class="design-code">${escapeHtml(order.orderCode)}</strong><span class="design-status ${escapeHtml(order.status || '')}">${escapeHtml(statusLabels[order.status] || order.status || 'Chưa demo')}</span></span><span class="design-card-bottom"><b>${escapeHtml(order.designer?.fullName || 'Chưa gán')}</b><span>📅 ${escapeHtml(order.deadline ? new Date(order.deadline).toLocaleDateString('vi-VN') : '—')}</span><span>📎 ${Number(order.fileCount) || 0} files</span></span></button>`).join('') : `<div class="utility-empty">Không tìm thấy đơn ${escapeHtml(search)}.</div>`;
     list.querySelectorAll('[data-design-index]').forEach((button) => { button.onclick = () => fillDesignForm(rows[Number(button.dataset.designIndex)]); });
   } catch (error) {
     if (requestId === designOrdersRequestId) list.innerHTML = `<div class="empty-state">${escapeHtml(error.message)}</div>`;
@@ -3098,7 +3077,6 @@ document.getElementById('crm-login').onclick = async () => {
   document.getElementById('crm-password').value = '';
   status.innerText = 'K\u1ebft n\u1ed1i Nh\u00e0 Y\u1ebfn POS th\u00e0nh c\u00f4ng.';
   renderCrmConnection();
-  await Promise.allSettled([loadDesigners(), loadDesignOrders()]);
 };
 document.getElementById('crm-logout').onclick = async () => {
   await ipcRenderer.invoke('crm:logout');
@@ -3115,7 +3093,7 @@ if (mappingSaveButton) mappingSaveButton.onclick = async () => {
     const context = getCurrentGroupContext();
     const next = upsertGroupMapping(workspaceData.groupMappings, { profileId: context.profileId, groupId: context.group.groupId, groupName: context.name, orderCode, crmConversationId: conversation.id });
     workspaceData.groupMappings = next.entries; persistWorkspace(); renderUtilityContext();
-    await Promise.allSettled([refreshPancakeCurrent(), loadDesignOrders()]);
+    await refreshPancakeCurrent();
   } catch (error) { alert(error.message); }
 };
 document.getElementById('pancake-refresh').onclick = () => loadPancakeOrders();
@@ -3287,26 +3265,14 @@ document.getElementById('pancake-reset').onclick = async () => {
 };
 const designRefreshButton = document.getElementById('design-refresh');
 if (designRefreshButton) designRefreshButton.onclick = loadDesignOrders;
-let designSearchTimer = null;
-document.getElementById('design-search').addEventListener('input', () => { clearTimeout(designSearchTimer); designSearchTimer = setTimeout(loadDesignOrders, 300); });
 document.getElementById('design-search').addEventListener('keydown', (event) => {
   if (event.key !== 'Enter') return;
   event.preventDefault();
-  clearTimeout(designSearchTimer); designSearchTimer = null;
   void loadDesignOrders();
 });
-document.getElementById('design-search-btn').onclick = () => {
-  clearTimeout(designSearchTimer); designSearchTimer = null;
-  void loadDesignOrders();
-};
+document.getElementById('design-search-btn').onclick = () => { void loadDesignOrders(); };
 document.getElementById('design-new').onclick = () => fillDesignForm(null);
 document.getElementById('design-back').onclick = showDesignListView;
-document.querySelectorAll('.design-chip').forEach((button) => button.onclick = () => {
-  designStatusFilter = button.dataset.status || '';
-  document.querySelectorAll('.design-chip').forEach((chip) => chip.classList.toggle('active', chip === button));
-  void loadDesignOrders();
-});
-['design-filter-designer', 'design-date-from', 'design-date-to'].forEach((id) => document.getElementById(id).addEventListener('change', loadDesignOrders));
 document.getElementById('design-save').onclick = async () => {
   const button = document.getElementById('design-save');
   const message = document.getElementById('design-status-message');
@@ -3327,6 +3293,7 @@ document.getElementById('design-save').onclick = async () => {
     // Nha Yen POS owns design orders directly; the chat code is only used to prefill/search.
     await crmRequest(selectedDesignOrder ? `/orders/${encodeURIComponent(selectedDesignOrder.id)}` : '/orders', selectedDesignOrder ? 'PUT' : 'POST', payload);
     message.innerText = selectedDesignOrder ? 'Đã cập nhật đơn thiết kế.' : 'Đã tạo đơn thiết kế trên Nhà Yến POS.';
+    document.getElementById('design-search').value = payload.orderCode.toUpperCase();
     showDesignListView(); await loadDesignOrders();
   } catch (error) { message.innerText = error.message; }
   finally { button.disabled = false; }

@@ -1,6 +1,6 @@
 {
   "name": "9meta",
-  "version": "2.5.56",
+  "version": "2.5.57",
   "description": "Nhà Yến Zalo - Quản lý nhiều tài khoản, người dùng và nhóm Zalo trên Desktop.",
   "main": "main.js",
   "scripts": {
@@ -74,7 +74,7 @@
       "include": "build/installer-access-code.nsh"
     },
     "releaseInfo": {
-      "releaseNotes": "Nhà Yến Zalo v2.5.56:\n- Sửa lỗi không lưu được tài khoản trên một số máy nhân viên và bắt buộc mở khóa dữ liệu đúng trạng thái.\n- Phân biệt rõ lỗi khóa dữ liệu, lỗi quyền ghi Windows và yêu cầu không hợp lệ.\n- Khôi phục dữ liệu còn thiếu từ thư mục Nhayenzalo về 9meta mà không ghi đè dữ liệu hiện có.\n- Tích hợp sẵn thư viện video và đầy đủ bộ Tin nhắn nhanh dùng trigger dấu \\.\n- Giữ nguyên các sửa lỗi tạo đơn Pancake, bộ cài đặt và logo ứng dụng."
+      "releaseNotes": "Nhà Yến Zalo v2.5.57:\n- Tin nhắn nhanh có ảnh: ảnh vào nhanh, không còn đè chữ, bấm Enter gửi được cả chữ và ảnh.\n- Gõ \\mẫu rồi bấm Space (hoặc Enter/Tab) là chèn được ngay. Phần chữ gõ trước vẫn được giữ.\n- Tin nhắn nhanh nhiều dòng giữ đúng xuống dòng.\n- Bấm link trong hội thoại: mở thẳng bằng Chrome, không còn bật cửa sổ trắng.\n- Tab Đơn thiết kế: nhập đủ mã đơn (chữ thường cũng được) rồi bấm Tìm để ra đúng đơn. Không còn tự tải cả danh sách khi mở tab.\n- Báo giá \"tiêu chuẩn\" dưới 400 thiệp chèn đúng nội dung như giấy ánh nhũ.\n- Nâng cấp nền tảng Electron 44 cho ổn định và bảo mật."
     },
     "publish": [
       {

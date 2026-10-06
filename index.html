@@ -1334,14 +1334,6 @@
     .design-search-wrap { padding:0 10px 6px; display:flex; gap:8px; align-items:center; }
     .design-search-wrap #design-search { flex:1; }
     .design-search-wrap #design-search-btn { flex:0 0 auto; padding:8px 16px; white-space:nowrap; }
-    .design-chips { display:flex; flex-wrap:wrap; gap:4px; padding:0 10px 6px; overflow:visible; }
-    .design-chip { white-space:nowrap; padding:5px 10px; border:1px solid #e2e8f0; border-radius:14px; background:#fff; color:#475569; cursor:pointer; font-weight:600; }
-    .design-chip.active { background:#1e293b; border-color:#1e293b; color:#fff; }
-    .design-chip[data-status="demo"].active { background:#f97316; border-color:#f97316; }
-    .design-chip[data-status="designing"].active { background:#1a6fd4; border-color:#1a6fd4; }
-    .design-chip[data-status="approved"].active { background:#10b981; border-color:#10b981; }
-    .design-chip[data-status="cancelled"].active { background:#ef4444; border-color:#ef4444; }
-    .design-filter-row { display:grid; grid-template-columns:1.2fr 1fr 1fr; gap:5px; padding:0 10px 6px; }
     .design-list { flex:1; min-height:150px; overflow-y:auto; padding:0 10px 10px; }
     .design-order-card { width:100%; display:block; margin:0 0 8px; padding:11px 12px; border:1px solid #e8edf3; border-radius:10px; background:#fff; color:#1e293b; text-align:left; cursor:pointer; }
     .design-order-card:hover,.design-order-card.selected { border-color:#93c5fd; box-shadow:0 2px 8px rgba(41,98,255,.08); }
@@ -1550,11 +1542,7 @@
         <div id="design-list-view" class="design-list-view">
           <div class="design-toolbar"><h2>Đơn thiết kế</h2><button id="design-new" class="design-add" type="button">＋ Tạo đơn mới</button></div>
           <div class="design-search-wrap"><input id="design-search" class="modal-input" type="search" placeholder="Nhập mã đơn rồi bấm Tìm"><button id="design-search-btn" class="modal-btn save" type="button">Tìm</button></div>
-          <div class="design-chips" role="group" aria-label="Lọc trạng thái đơn">
-            <button class="design-chip active" data-status="" type="button">Tất cả</button><button class="design-chip" data-status="demo" type="button">Chưa demo</button><button class="design-chip" data-status="designing" type="button">Thiết kế</button><button class="design-chip" data-status="approved" type="button">Chốt in</button><button class="design-chip" data-status="cancelled" type="button">Huỷ</button>
-          </div>
-          <div class="design-filter-row"><select id="design-filter-designer" class="modal-select"><option value="">Tất cả Designer</option></select><input id="design-date-from" class="modal-input" type="date" aria-label="Từ ngày"><input id="design-date-to" class="modal-input" type="date" aria-label="Đến ngày"></div>
-          <div id="design-list" class="design-list" aria-live="polite"></div>
+          <div id="design-list" class="design-list" aria-live="polite"><div class="utility-empty">Nhập đủ mã đơn (ví dụ D031039) rồi bấm Tìm.</div></div>
         </div>
         <div id="design-editor" class="design-editor" hidden>
           <div class="design-editor-head"><button id="design-back" class="modal-btn cancel" type="button" aria-label="Quay lại danh sách">← Quay lại</button><h3 id="design-current-group">Tạo đơn thiết kế</h3></div>
