@@ -365,7 +365,10 @@ test('utility panes are mutually exclusive and design orders load only when the 
   assert.doesNotMatch(renderer, /design-search'\)\.value = extractOrderCode/);
   assert.match(html, /id="design-search-btn"/);
   assert.match(renderer, /function isLikelyOrderCode\(value\)/);
-  assert.match(renderer, /isLikelyOrderCode\(search\) \? 'orderCode' : 'search'/);
+  // Ma don chuan hoa chu hoa truoc khi tra chinh xac; Tìm voi orderCode luon goi moi.
+  assert.match(renderer, /getElementById\('design-search'\)\.value\.trim\(\)\.toUpperCase\(\)/);
+  assert.match(renderer, /exactCode \? 'orderCode' : 'search'/);
+  assert.match(renderer, /if \(exactCode\)/);
   assert.match(renderer, /getElementById\('design-search-btn'\)\.onclick/);
 });
 
@@ -766,6 +769,32 @@ test('multi-line inserts build one block per line inside Zalo, no insertText rac
   const quoteHandler = main.slice(main.indexOf("ipcMain.handle('active-chat-insert-text'"), main.indexOf("ipcMain.handle('active-chat-send-text'"));
   assert.match(quoteHandler, /__DepLaoInsertComposerText/);
   assert.doesNotMatch(quoteHandler, /webContents\.insertText\(String\(message\)\)/);
+});
+
+test('quick reply writes text before pasting the image so Enter sends both', () => {
+  const preload = fs.readFileSync(path.join(root, 'preload.js'), 'utf8');
+  const body = preload.slice(preload.indexOf('async function applyQuickReply('), preload.indexOf('window.__DepLaoFinalizeQuickReply'));
+  // Dung chu truoc, danh anh sau: Zalo chi tin editor da co state chu moi tinh ca hai khi Enter.
+  const textAt = body.indexOf('insertComposerTextInPage(targetInput, finalMessage)');
+  const pasteAt = body.indexOf('pasteQuickReplyImage(imagePath)');
+  assert.ok(textAt > 0 && pasteAt > 0);
+  assert.ok(textAt < pasteAt, 'phai dung chu truoc roi danh anh');
+  // Dinh lai chu sau khi anh ve, de Zalo khong bo chi do len state gui.
+  assert.match(body, /await waitForComposerImage\(before, QUICK_REPLY_IMAGE_TIMEOUT_MS\)/);
+  assert.match(body, /if \(!String\(composerTextValue\(targetInput\)\)\.trim\(\)\) \{\s*insertComposerTextInPage/);
+  // Dán anh that bai thi giu chu da dung va bao nhung khong bao loi chung.
+  assert.match(body, /stage: 'paste-warn'/);
+  assert.doesNotMatch(body, /stage: 'preview'/);
+});
+
+test('an exact \\keyword match can be inserted with space, Enter and Tab', () => {
+  const preload = fs.readFileSync(path.join(root, 'preload.js'), 'utf8');
+  const shortcuts = preload.slice(preload.indexOf('function setupQuickReplyShortcuts()'), preload.indexOf('setTimeout(setupQuickReplyShortcuts'));
+  // Space chi khi khop dung 1 mau, de khong nuot dau cach khi nguoi dung go do.
+  assert.match(shortcuts, /e\.key === ' ' && items\.length === 1 && window\.__DepLaoExactReply/);
+  assert.match(shortcuts, /e\.key === 'Enter' \|\| e\.key === 'Tab'/);
+  assert.match(shortcuts, /window\.__DepLaoExactReply = \{ index: 0, token: token \}/);
+  assert.match(shortcuts, /window\.__DepLaoExactReply = null/);
 });
 
 test('connected CRM panels collapse credentials into a compact header chip', () => {

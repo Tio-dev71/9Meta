@@ -971,9 +971,11 @@ async function loadDesignOrders() {
   const list = document.getElementById('design-list');
   list.innerHTML = '<div class="utility-empty">Đang tải đơn thiết kế…</div>';
   try {
-    const search = document.getElementById('design-search').value.trim();
+    // Mã đơn lưu trong POS là chữ hoa (D250901): gõ "d250901" cũng phải ra kết quả.
+    const search = document.getElementById('design-search').value.trim().toUpperCase();
+    const exactCode = isLikelyOrderCode(search);
     const params = new URLSearchParams({ limit: '50', offset: '0' });
-    if (search) params.set(isLikelyOrderCode(search) ? 'orderCode' : 'search', search);
+    if (search) params.set(exactCode ? 'orderCode' : 'search', search);
     if (designStatusFilter) params.set('status', designStatusFilter);
     const designerId = document.getElementById('design-filter-designer')?.value || '';
     const dateFrom = document.getElementById('design-date-from')?.value || '';
@@ -982,12 +984,19 @@ async function loadDesignOrders() {
     if (dateFrom) params.set('dateFrom', dateFrom);
     if (dateTo) params.set('dateTo', dateTo);
     const path = `/orders?${params.toString()}`;
-    if (!designOrdersInFlight.has(path)) {
-      const pending = crmRequest(path);
-      designOrdersInFlight.set(path, pending);
-      void pending.finally(() => { if (designOrdersInFlight.get(path) === pending) designOrdersInFlight.delete(path); }).catch(() => {});
+    let data;
+    if (exactCode) {
+      // Nhấn Tìm với mã đơn phải luôn gọi lại, không dùng request đang bay
+      // để không hiển thị list cũ khi orderCode không khớp (hoa/thường...).
+      data = await crmRequest(path);
+    } else {
+      if (!designOrdersInFlight.has(path)) {
+        const pending = crmRequest(path);
+        designOrdersInFlight.set(path, pending);
+        void pending.finally(() => { if (designOrdersInFlight.get(path) === pending) designOrdersInFlight.delete(path); }).catch(() => {});
+      }
+      data = await designOrdersInFlight.get(path);
     }
-    const data = await designOrdersInFlight.get(path);
     if (requestId !== designOrdersRequestId) return;
     const rows = data.orders || data.items || [];
     const statusLabels = { demo: 'Chưa demo', designing: 'Thiết kế', approved: 'Chốt in', cancelled: 'Huỷ' };

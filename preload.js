@@ -300,9 +300,33 @@ function runInjection(currentSettings) {
           targetInput.dispatchEvent(new Event('input', { bubbles: true }));
           return true;
         }
+        // Lexical trên Zalo không đọc innerHTML thẳng — phải đi qua editing engine
+        // nên thử execCommand('insertText') trước, DOM div chỉ là dự phòng.
+        var beforeLen = String(composerTextValue(targetInput)).length;
+        var execOk = false;
+        try {
+          // Đã được clearComposerText ở ngoài nếu cần; không xoá lại để không mất
+          // preview ảnh khi ảnh nằm trong cùng editor.
+          execOk = document.execCommand('insertText', false, normalized);
+        } catch (e) { execOk = false; }
+        try {
+          var ev = typeof InputEvent === 'function' ? new InputEvent('input', { bubbles: true, inputType: 'insertText', data: normalized }) : new Event('input', { bubbles: true });
+          targetInput.dispatchEvent(ev);
+        } catch (e) { try { targetInput.dispatchEvent(new Event('input', { bubbles: true })); } catch (ignored) {} }
+        try { targetInput.dispatchEvent(new Event('change', { bubbles: true })); } catch (e2) {}
+        if (execOk && String(composerTextValue(targetInput)).trim().length > 0) {
+          try { targetInput.dispatchEvent(new KeyboardEvent('keyup', { bubbles: true })); } catch (e) {}
+          try {
+            var range2 = document.createRange();
+            var sel2 = window.getSelection && window.getSelection();
+            range2.selectNodeContents(targetInput);
+            range2.collapse(false);
+            if (sel2) { sel2.removeAllRanges(); sel2.addRange(range2); }
+          } catch (e3) {}
+          return true;
+        }
+        // Dự phòng: môi trường Zalo lạ hoặc execCommand bị từ chối — dựng DOM trực tiếp
         var isRichInput = targetInput.id === 'richInput' || (targetInput.getAttribute && (targetInput.getAttribute('role') || '').toLowerCase() === 'textbox');
-        // Xoá sạch rồi dựng từng dòng thành block riêng trong cùng một tick JS của Zalo,
-        // tránh race qua main process khiến \n bị bỏ khi gửi.
         targetInput.innerHTML = '';
         if (lines.length === 1 && lines[0] === '') {
           targetInput.appendChild(document.createElement('br'));
@@ -314,7 +338,6 @@ function runInjection(currentSettings) {
             targetInput.appendChild(div);
           }
         }
-        // Đặt caret cuối nội dung
         try {
           var range = document.createRange();
           var sel = window.getSelection && window.getSelection();
@@ -323,7 +346,6 @@ function runInjection(currentSettings) {
           if (sel) { sel.removeAllRanges(); sel.addRange(range); }
         } catch (e) {}
         targetInput.dispatchEvent(new Event('input', { bubbles: true }));
-        // Dự phòng: với môi trường Zalo lạ (Lexical cũ) fallback sang insertText/innerText
         if (!String(composerTextValue(targetInput)).trim()) {
           targetInput.focus();
           var ok = false;
@@ -332,7 +354,6 @@ function runInjection(currentSettings) {
           targetInput.dispatchEvent(new Event('input', { bubbles: true }));
         }
         if (isRichInput) {
-          // Zalo Lexical/Lexcal lưu history theo '\n' qua state; đồng bộ lại light-weight
           try { targetInput.dispatchEvent(new KeyboardEvent('keyup', { bubbles: true })); } catch (e) {}
         }
         return String(composerTextValue(targetInput)).trim().length > 0;
@@ -370,6 +391,11 @@ function runInjection(currentSettings) {
           var trigger = String.fromCharCode(92);
           var triggerIndex = currentText.lastIndexOf(trigger);
           var finalMessage = (triggerIndex >= 0 ? currentText.slice(0, triggerIndex) : '') + String(reply.message || '');
+          // Dựng chữ TRƯỚC khi dán ảnh: Zalo đọc \n thành xuống dòng qua editing engine,
+          // tránh cảnh Enter chỉ gửi được ảnh còn chữ bị coi là rỗng (đè tin).
+          clearComposerNotice();
+          clearComposerText(targetInput);
+          insertComposerTextInPage(targetInput, finalMessage);
           var imagePath = String(reply.imagePath || '').trim();
           if (imagePath) {
             var before = composerPendingImageNodes(composerRoot()).length;
@@ -377,20 +403,16 @@ function runInjection(currentSettings) {
             try { paste = await window.messengerApp.pasteQuickReplyImage(imagePath); }
             catch (err) { paste = { ok: false, message: String((err && err.message) || err) }; }
             if (!paste || !paste.ok) {
-              showQuickReplyNotice('Mẫu ' + trigger + keyword + ' không chèn được ảnh: ' + ((paste && paste.message) || 'lỗi không rõ') + '. Tin nhắn chưa được điền.');
-              return { ok: false, stage: 'paste', message: (paste && paste.message) || 'Không dán được ảnh.' };
+              showQuickReplyNotice('Mẫu ' + trigger + keyword + ' không chèn được ảnh: ' + ((paste && paste.message) || 'lỗi không rõ') + '. Tin nhắn chữ đã được điền, ảnh chưa có.');
+              return { ok: true, stage: 'paste-warn', message: (paste && paste.message) || 'Không dán được ảnh.', keyword: keyword };
             }
-            var appeared = await waitForComposerImage(before, QUICK_REPLY_IMAGE_TIMEOUT_MS);
-            if (!appeared) {
-              showQuickReplyNotice('Zalo chưa hiển thị ảnh của mẫu ' + trigger + keyword + ' sau ' + Math.round(QUICK_REPLY_IMAGE_TIMEOUT_MS / 1000) + ' giây. Ảnh và tin nhắn chưa được điền.');
-              return { ok: false, stage: 'preview', message: 'Zalo không hiển thị preview ảnh trong ô soạn tin.' };
+            await waitForComposerImage(before, QUICK_REPLY_IMAGE_TIMEOUT_MS);
+            // Đồng bộ lại chữ sau khi dán ảnh: một số bản Zalo reset editor khi ảnh về,
+            // khiến chữ bị rớt khỏi state gửi dù vẫn hiển thị.
+            if (!String(composerTextValue(targetInput)).trim()) {
+              insertComposerTextInPage(targetInput, finalMessage);
             }
           }
-          clearComposerNotice();
-          clearComposerText(targetInput);
-          // Cả nút "Chèn" và gõ \keyword đều dán trong trang bằng cùng một hàm dựng block;
-          // giữ viaMain chỉ cho main process focus View đúng tab rồi kết thúc.
-          insertComposerTextInPage(targetInput, finalMessage);
           if (viaMain) return { ok: true, doneByMain: true, finalMessage: finalMessage, keyword: keyword };
           return { ok: true, keyword: keyword };
         } catch (err) {
@@ -443,8 +465,20 @@ function runInjection(currentSettings) {
           // phim dieu huong (Home/End/mui ten) khong lam thay doi text nen giu timer song sot.
           var cancelsAutoFill = e.key === 'Escape' || (e.key && e.key.length === 1 && !e.ctrlKey && !e.metaKey && !e.altKey) || e.key === 'Enter' || e.key === 'Tab' || e.key === 'Backspace' || e.key === 'Delete';
           if (autoFillTimer && cancelsAutoFill) { clearTimeout(autoFillTimer); autoFillTimer = null; }
-          if (!hint || hint.style.display === 'none' || !hint.children.length) return;
+          if (!hint || hint.style.display === 'none' || !hint.children.length) {
+            if (window.__DepLaoExactReply) window.__DepLaoExactReply = null;
+            return;
+          }
           var items = Array.from(hint.children);
+          // \keyword + phím space: chèn nhanh, nhưng chỉ khi gợi ý khớp đúng 1 mẫu
+          // để không nuốt mất dấu cách khi người dùng đang gõ dở.
+          if (e.key === ' ' && items.length === 1 && window.__DepLaoExactReply) {
+            e.preventDefault(); e.stopPropagation();
+            hint.style.display = 'none';
+            window.__DepLaoExactReply = null;
+            items[0].click();
+            return;
+          }
           if (e.key === 'ArrowDown' || e.key === 'ArrowUp') {
             e.preventDefault(); e.stopPropagation();
             activeHintIndex = (activeHintIndex + (e.key === 'ArrowDown' ? 1 : -1) + items.length) % items.length;
@@ -500,6 +534,12 @@ function runInjection(currentSettings) {
                 existingHint.appendChild(item);
               });
             existingHint.style.display = existingHint.children.length ? 'block' : 'none';
+            // Ghi nhớ mẫu khớp chính xác để phím space có thể chèn nhanh (chỉ 1 mẫu).
+            if (ranked.length === 1 && query && normalizeSearch(ranked[0].keyword) === query) {
+              window.__DepLaoExactReply = { index: 0, token: token };
+            } else {
+              window.__DepLaoExactReply = null;
+            }
             // Tu dong dien khi chi co dung 1 ket qua khop chinh xac voi keyword
             if (ranked.length === 1 && query && normalizeSearch(ranked[0].keyword) === query) {
               (function(entry, expectedToken) {
@@ -519,6 +559,7 @@ function runInjection(currentSettings) {
             return;
           }
           if (existingHint) existingHint.style.display = 'none';
+          window.__DepLaoExactReply = null;
         }, true);
       }
       // Chạy trong main world của Zalo giống cơ chế ổn định trước đây.

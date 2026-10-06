@@ -2399,9 +2399,8 @@ function createWindow() {
     catch (error) { return { ok: false, message: error.message || String(error) }; }
   });
 
-  // Nút "Chèn": tiện ích tự dựng từng dòng thành block trong ô soạn Zalo (một nhịp JS
-  // duy nhất) rồi main chỉ đưa focus về tab. Không dùng webContents.insertText vì
-  // \n không được contenteditable của Zalo quy thành xuống dòng, gửi đi mất từ dòng 2.
+  // Nút "Chèn": tiện ích dựng chữ TRƯỚC rồi mới dán ảnh trong ô soạn Zalo,
+  // đảm bảo Enter gửi đủ cả chữ lẫn ảnh (không đè tin, không mất dòng).
   ipcMain.handle('quick-reply:test-template', async (event, replyId) => {
     if (!mainWindow || event.sender !== mainWindow.webContents) return { ok: false, message: 'Nguồn yêu cầu không hợp lệ.' };
     const view = activeProfileId && browserViews[activeProfileId];
