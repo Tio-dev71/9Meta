@@ -2494,7 +2494,7 @@ function createWindow() {
   // Chữ tin nhắn nhanh phải đi qua thao tác dán thật (Ctrl+V): ô chat Zalo là Lexical,
   // chữ chèn bằng DOM/execCommand chỉ hiện trên màn hình nên đè placeholder và Enter
   // chỉ gửi ảnh. Trang đã tự chọn sẵn token \keyword nên Ctrl+V thay đúng đoạn đó.
-  ipcMain.handle('quick-reply:paste-text', async (event, text) => {
+  ipcMain.handle('quick-reply:paste-text', async (event, text, mode) => {
     if (!storeUnlocked || appLocked) return { ok: false, locked: true, message: 'App locked.' };
     const view = Object.values(browserViews).find((entry) => entry?.webContents === event.sender);
     if (!view) return { ok: false, message: 'Tab Zalo không hợp lệ.' };
@@ -2508,9 +2508,32 @@ function createWindow() {
     }
     if (event.sender.isDestroyed()) return { ok: false, message: 'Paste cancelled.' };
     event.sender.focus();
-    clipboard.writeText(normalized);
-    event.sender.sendInputEvent({ type: 'keyDown', keyCode: 'V', modifiers: ['control'] });
-    event.sender.sendInputEvent({ type: 'keyUp', keyCode: 'V', modifiers: ['control'] });
+    if (mode === 'type') {
+      // Dự phòng khi dán không ăn: gõ thật từng dòng (insertText là input tin cậy
+      // nên Lexical ghi nhận), xuống dòng bằng Shift+Enter như người dùng gõ tay.
+      const lines = normalized.split('\n');
+      for (let i = 0; i < lines.length; i++) {
+        if (event.sender.isDestroyed()) return { ok: false, message: 'Paste cancelled.' };
+        if (i > 0) {
+          event.sender.sendInputEvent({ type: 'keyDown', keyCode: 'Enter', modifiers: ['shift'] });
+          event.sender.sendInputEvent({ type: 'keyUp', keyCode: 'Enter', modifiers: ['shift'] });
+          await new Promise((resolve) => setTimeout(resolve, 15));
+        }
+        if (lines[i]) await event.sender.insertText(lines[i]);
+      }
+      return { ok: true, mode: 'type', chars: normalized.length };
+    }
+    // Trên Windows, app khác (UltraViewer, TeamViewer, lịch sử clipboard...) có thể đang
+    // giữ clipboard làm lệnh ghi thất bại âm thầm: đọc lại kiểm tra và thử lại vài lần.
+    let written = false;
+    for (let attempt = 0; attempt < 6 && !written; attempt++) {
+      if (attempt) await new Promise((resolve) => setTimeout(resolve, 50));
+      try { clipboard.writeText(normalized); } catch { }
+      try { written = clipboard.readText().replace(/\r\n?/g, '\n') === normalized; } catch { written = false; }
+    }
+    if (!written) return { ok: false, message: 'Clipboard đang bị ứng dụng khác chiếm.' };
+    // Gọi thẳng lệnh dán của Chromium, không phụ thuộc phím Ctrl+V giả lập.
+    event.sender.paste();
     return { ok: true, chars: normalized.length };
   });
   ipcMain.handle('quick-reply:paste-image', async (event, imagePath) => {

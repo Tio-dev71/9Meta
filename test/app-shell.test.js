@@ -806,10 +806,14 @@ test('quick reply pastes the image first, then real-pastes text over the \\keywo
   // Chon dung token \keyword thay vi Ctrl+A, cho chu khop theo kieu "chua" de khong cho oan.
   assert.match(preload, /function selectQuickReplyToken\(targetInput\)/);
   assert.match(preload, /have\.indexOf\(want\) >= 0/);
-  assert.match(preload, /pasteQuickReplyText: \(text\) => ipcRenderer\.invoke\('quick-reply:paste-text', text\)/);
+  assert.match(preload, /pasteQuickReplyText: \(text, mode\) => ipcRenderer\.invoke\('quick-reply:paste-text', text, mode\)/);
+  // Clipboard bi app khac chiem: kiem tra ghi duoc moi dan, khong duoc thi go that.
+  assert.match(preload, /pasteQuickReplyText\(message, 'type'\)/);
   const pasteText = main.slice(main.indexOf("ipcMain.handle('quick-reply:paste-text'"), main.indexOf("ipcMain.handle('quick-reply:paste-image'"));
   assert.doesNotMatch(pasteText, /keyCode: 'A'/);
   assert.match(pasteText, /templates\.includes\(normalized\)/);
+  assert.match(pasteText, /clipboard\.readText\(\)/);
+  assert.match(pasteText, /event\.sender\.insertText\(lines\[i\]\)/);
   // Dán anh that bai thi giu chu da dung va bao nhung khong bao loi chung.
   assert.match(body, /stage: 'paste-warn'/);
   assert.doesNotMatch(body, /stage: 'preview'/);

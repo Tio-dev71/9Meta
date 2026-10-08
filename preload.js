@@ -22,7 +22,7 @@ contextBridge.exposeInMainWorld('messengerApp', {
   emitZaloGroupScanEvent: (payload) => ipcRenderer.send('zalo-group-scan:event', payload),
   emitZaloUserScanEvent: (payload) => ipcRenderer.send('zalo-user-scan:event', payload),
   pasteQuickReplyImage: (imagePath) => ipcRenderer.invoke('quick-reply:paste-image', imagePath),
-  pasteQuickReplyText: (text) => ipcRenderer.invoke('quick-reply:paste-text', text),
+  pasteQuickReplyText: (text, mode) => ipcRenderer.invoke('quick-reply:paste-text', text, mode),
 });
 
 // Neu main process chua kip dang ky listener thi sendSync tra ve undefined;
@@ -435,7 +435,16 @@ function runInjection(currentSettings) {
           await new Promise(function(resolve) { setTimeout(resolve, 30); });
           var res = null;
           try { res = await window.messengerApp.pasteQuickReplyText(message); } catch (e) { res = null; }
-          if (res && res.ok && await waitForComposerText(targetInput, message, 1500)) return true;
+          if (res && res.ok && await waitForComposerText(targetInput, message, 2500)) return true;
+          // Dán không ăn (clipboard bị chiếm, máy chậm...): gõ thật qua main thay cho
+          // dựng DOM, vì chữ dựng DOM chỉ hiện đè placeholder mà Zalo không gửi được.
+          if (!(await waitForComposerText(targetInput, message, 0))) {
+            targetInput.focus();
+            selectQuickReplyToken(targetInput);
+            await new Promise(function(resolve) { setTimeout(resolve, 30); });
+            try { res = await window.messengerApp.pasteQuickReplyText(message, 'type'); } catch (e) { res = null; }
+          }
+          if (await waitForComposerText(targetInput, message, 2500)) return true;
         }
         clearComposerText(targetInput);
         return insertComposerTextInPage(targetInput, finalMessage);
