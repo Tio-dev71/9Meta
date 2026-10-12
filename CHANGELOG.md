@@ -1,5 +1,21 @@
 # Changelog
 
+## 2.5.59-test - 2026-10-12
+
+### Test build chua publish: quet nhom theo kieu quet nguoi dung + chen bao gia bang dan that
+
+- **Quet Nhom Zalo**: viet lai `buildPageExtractorScript` theo dung cong nghe dang chay tot
+  o Quet nguoi dung (`zalo-user-management.js`) thay vi chi goi `window.groupManager`.
+  Cu the: thu nhieu ten manager cua Zalo (khong con phu thuoc mot ten duy nhat),
+  boc `window.fetch` / `XMLHttpRequest` / `JSON.parse` de doc du lieu Zalo tu tai ve,
+  loc theo hinh dang nhom (`totalMember` / `memberIds` / `members` / `creatorId` /
+  `createdTime`), mo tab Nhom va keo danh sach de Zalo tai cac trang con lai.
+  Khong doc cookie / session secret.
+- **Nut Chen bao gia**: `__DepLaoInsertComposerText` doi sang dan chu that qua main
+  (`fillComposerWithRealPaste`) dung nhu tin nhan nhanh. Sua loi chu hien de len
+  placeholder, cac dong dinh nhau va bam Enter khong gui duoc o bo nhap Tin tuc
+  Zalo (Lexical).
+
 ## 2.5.25 - 2026-09-02
 
 ### Don Pancake: boc het CRM, bo cuc lai giao dien

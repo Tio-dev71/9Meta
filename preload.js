@@ -507,15 +507,23 @@ function runInjection(currentSettings) {
         return applyQuickReply(input, reply || {}, undefined, true);
       };
 
-      // Nút "Chèn" báo giá: dựng từng dòng thành block riêng trong cùng một tick JS
-      // (giống tin nhắn nhanh), không dùng webContents.insertText vì \n bị bỏ khi gửi.
+      // Nút "Chèn" báo giá: đi đúng luồng dán chữ thật như tin nhắn nhanh. Ô soạn Zalo
+      // là Lexical, nên chữ dựng bằng DOM/execCommand chỉ hiện đè placeholder mà state gửi
+      // đi vẫn rỗng (Enter không gửi được). Dán/gõ thật qua main là đường đã ổn định.
       window.__DepLaoInsertComposerText = function(text) {
         var input = findComposerInput();
-        if (!input) return { ok: false, message: 'Không tìm thấy ô soạn tin Zalo. Hãy mở một cuộc trò chuyện.' };
+        if (!input) return Promise.resolve({ ok: false, message: 'Không tìm thấy ô soạn tin Zalo. Hãy mở một cuộc trò chuyện.' });
+        var message = String(text || '');
+        if (!message) return Promise.resolve({ ok: false, message: 'Nội dung báo giá đang trống.' });
         clearComposerText(input);
-        var ok = insertComposerTextInPage(input, String(text || ''));
-        if (!ok) return { ok: false, message: 'Không chèn được nội dung vào ô soạn tin Zalo.' };
-        return { ok: true, chars: String(text || '').length };
+        return fillComposerWithRealPaste(input, message, message)
+          .then(function(ok) {
+            if (!ok) return { ok: false, message: 'Không chèn được nội dung vào ô soạn tin Zalo.' };
+            return { ok: true, chars: message.length };
+          })
+          .catch(function(error) {
+            return { ok: false, message: String((error && error.message) || error) };
+          });
       };
 
       // Ẩn panel Tin nhắn nhanh gốc của Zalo để chỉ còn danh sách của Nhà Yến (chỉ ẩn bằng CSS, không vá sâu vào Zalo).
