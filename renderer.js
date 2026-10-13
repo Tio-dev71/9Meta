@@ -1118,9 +1118,14 @@ function renderZaloGroupScan(update = null) {
   const discovered = Number(update?.discovered || activeZaloGroupScan?.discovered || 0);
   const total = update?.totalUnique ?? activeZaloGroupScan?.totalUnique;
   const processed = Number(update?.processed ?? activeZaloGroupScan?.processed ?? 0);
-  document.getElementById('zalo-groups-progress').innerText = total === null || total === undefined
-    ? `Đã đọc ${pages} trang • tìm thấy ${discovered} ID`
-    : `Đã xử lý ${processed}/${total} nhóm • lỗi ${zaloGroupScanFailures.length}`;
+  // Tri duoc window dang bam: "0/0" la tu 0, khong phai loi. Mun ket thuc neu 0 nhom
+  // duoc phat hien se gui 'incompatible' thay vi 'fetching' + 0/0.
+  const hasProgressLine = (total !== null && total !== undefined) || processed || discovered || pages;
+  document.getElementById('zalo-groups-progress').innerText = (status === 'fetching' && (total === null || total === undefined) && !hasProgressLine)
+    ? 'Đang chuẩn bị…'
+    : (total === null || total === undefined
+      ? `Đã đọc ${pages} trang • tìm thấy ${discovered} ID`
+      : `Đã xử lý ${processed}/${total} nhóm • lỗi ${zaloGroupScanFailures.length}`);
   document.getElementById('zalo-groups-errors').innerHTML = zaloGroupScanFailures.length
     ? zaloGroupScanFailures.map((item) => `<div class="list-item"><strong>${escapeHtml(item.groupId || 'Không rõ ID')}</strong><span class="muted">${escapeHtml(item.reason || item.message || 'Lỗi')}</span></div>`).join('')
     : (status === 'incompatible' && update?.message

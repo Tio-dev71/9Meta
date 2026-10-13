@@ -238,14 +238,20 @@ function buildPageExtractorScript(scanId) {
 
     // "Hinh dang nhom": khong phai object danh ba (user) va co it nhat mot dau hieu
     // danh danh nhom. Chi lay ID de so sanh, khong khop digits de tranh loai.
+    // KHONG loai vi co displayName/avatar: nhom Zalo cung co hai key do. Chi loai
+    // khi object mang danh dau rieng cua danh ba (ten Zalo, so dien thoai, trang
+    // thai ban) va khong mang bat ky dau hieu nhom nao.
+    const GROUP_MARKERS = ['totalMember', 'total_member', 'memberCount', 'memberIds', 'members', 'adminIds', 'creatorId', 'createdTime', 'groupName', 'groupAvatar'];
+    const USER_MARKERS = ['zaloName', 'phoneNumber', 'isFriend', 'friendStatus', 'setting', 'verified'];
     const looksLikeGroup = (item) => {
       if (!item || typeof item !== 'object' || Array.isArray(item)) return false;
       const id = item.groupId ?? item.globalId ?? item.conversationId ?? item.chatId ?? item.userId ?? item.id;
       if (!id || typeof id === 'object' || !String(id).trim()) return false;
-      if (['zaloName', 'displayName', 'avatarUrl', 'phoneNumber', 'isFriend', 'friendStatus'].some((key) => key in item)) return false;
-      return 'totalMember' in item || 'total_member' in item || 'memberCount' in item || 'memberIds' in item
-        || Array.isArray(item.members) || 'groupName' in item || 'groupAvatar' in item || 'creatorId' in item
-        || 'adminIds' in item || 'createdTime' in item;
+      const hasGroupShape = GROUP_MARKERS.some((key) => key in item) || (Array.isArray(item.members));
+      if (!hasGroupShape) return false;
+      // Nhom la doi tuong cua Zalo: uu tien groupId/globalId/conversationId truoc.
+      if (!item.groupId && !item.globalId && !item.conversationId) return false;
+      return !USER_MARKERS.some((key) => key in item);
     };
 
     const toDto = (item) => ({
@@ -324,10 +330,18 @@ function buildPageExtractorScript(scanId) {
     // --- Duong 1: dung ten global cua Zalo (nhanh nhat, giu nguyen cho tung phien) ---
     const GROUP_MANAGER_NAMES = ['groupManager', 'GroupManager', 'groupListManager', 'GroupListManager'];
     const GROUP_LIST_METHODS = ['getGroupsList', 'getGroupList', 'fetchGetGroupList', 'forceRequestGetGroupList', 'getAllGroupList', 'getGroupListFromCache'];
+    const MANAGER_TIMEOUT_MS = 8_000;
+    // Gioi han tung cuoc goi manager: Zalo tra promise treo hoac ham chay lau qua la
+    // bo qua duong nay va tiep tuc duong mang, khong ket cung scan o "Dang lay chi tiet".
+    const withTimeout = (promise) => new Promise((resolve) => {
+      let settled = false;
+      const finish = (value) => { if (settled) return; settled = true; resolve(value); };
+      Promise.resolve(promise).then(finish, () => finish(null));
+      setTimeout(() => finish(null), MANAGER_TIMEOUT_MS);
+    });
     const callManager = (manager, method) => {
       try {
-        const maybe = manager[method]();
-        return Promise.resolve(maybe).then((result) => Array.isArray(result) ? result : (Array.isArray(result && result.data) ? result.data : null));
+        return withTimeout(manager[method]()).then((result) => Array.isArray(result) ? result : (Array.isArray(result && result.data) ? result.data : null));
       } catch { return Promise.resolve(null); }
     };
     const scanManagers = async () => {
