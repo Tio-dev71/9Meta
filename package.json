@@ -1,6 +1,6 @@
 {
   "name": "9meta",
-  "version": "2.5.60",
+"version": "2.5.60",
   "description": "Nhà Yến Zalo - Quản lý nhiều tài khoản, người dùng và nhóm Zalo trên Desktop.",
   "main": "main.js",
   "scripts": {
@@ -74,7 +74,7 @@
       "include": "build/installer-access-code.nsh"
     },
     "releaseInfo": {
-      "releaseNotes": "Nhà Yến Zalo v2.5.60:\n- Quét nhóm Zalo hoạt động lại: bộ quét viết lại theo kiểu Quét người dùng, thử nhiều tên manager và đọc dữ liệu Zalo tự tải về nên không còn báo \"Không tương thích\" hay đọc 0 nhóm.\n- Nút Chèn vào ô soạn tin ở tab Báo giá giữ đúng xuống dòng và Enter gửi được.\n- Rời nhóm hàng loạt không còn báo thiếu groupManager.\n- Thêm giới hạn chờ cho các lệnh Zalo treo."
+"releaseNotes": "Nhà Yến Zalo v2.5.60:\n- Quét nhóm Zalo hoạt động lại: bộ quét viết lại theo kiểu Quét người dùng, thử nhiều tên manager và đọc dữ liệu Zalo tự tải về nên không còn báo \"Không tương thích\" hay đọc 0 nhóm.\n- Nút Chèn vào ô soạn tin ở tab Báo giá giữ đúng xuống dòng và Enter gửi được.\n- Rời nhóm hàng loạt không còn báo thiếu groupManager.\n- Thêm giới hạn chờ cho các lệnh Zalo treo."
     },
     "publish": [
       {

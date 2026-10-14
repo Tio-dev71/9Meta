@@ -115,8 +115,9 @@ test('shell uses one white rail, anchors tools at the bottom, and exposes a pers
   assert.match(html, /id="font-size-range"[^>]+min="12"[^>]+max="24"/);
   assert.match(renderer, /localStorage\.setItem\('nha-yen-font-size'/);
   assert.match(renderer, /set-font-scale/);
-  assert.match(main, /titleBarStyle:\s*'hidden'/);
-  assert.match(main, /color:\s*'#ffffff'/);
+  // Frameless titleBar chỉ áp cho non-mac; macOS dùng native titlebar để tránh native crash khi tạo BrowserWindow.
+  assert.match(main, /if \(!isMac\) \{\s*\r?\n\s*windowOptions\.titleBarStyle = 'hidden';/);
+  assert.match(main, /windowOptions\.titleBarOverlay = \{ color: '#ffffff'/);
 });
 
 test('top bar opens mutually exclusive quote, design and Pancake panels that are closed by default', () => {

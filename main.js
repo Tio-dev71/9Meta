@@ -26,8 +26,27 @@ const {
 const { autoUpdater } = require('electron-updater');
 const path = require('path');
 const fs = require('fs');
+// [mac-diag-2.5.57] Ghi log khởi động sớm ra file để bắt nguyên nhân crash trên macOS (stdout mất khi crash native).
+// Hook phải đặt sau `const crypto` vì test harness của repo chạy main.js bằng stub module nên các khai báo const phải đi trước.
 const crypto = require('crypto');
 const os = require('os');
+try {
+  const earlyLogPath = path.join(app.getPath('logs'), 'nhayen-startup.log');
+  fs.mkdirSync(path.dirname(earlyLogPath), { recursive: true });
+  const stamp = new Date().toISOString();
+  fs.appendFileSync(earlyLogPath, `\n=== startup ${stamp} v${app.getVersion()} platform=${process.platform} arch=${process.arch} electron=${process.versions?.electron || '?'} ===\n`, 'utf8');
+  const methods = ['log', 'error', 'warn', 'info'];
+  for (const method of methods) {
+    const original = console[method]?.bind(console);
+    console[method] = (...args) => {
+      try {
+        const line = args.map((entry) => { try { return typeof entry === 'string' ? entry : JSON.stringify(entry); } catch { return String(entry); } }).join(' ');
+        fs.appendFileSync(earlyLogPath, `[${method}] ${line}\n`, 'utf8');
+      } catch {}
+      try { original?.(...args); } catch {}
+    };
+  }
+} catch {}
 const IS_TEST_DISTRIBUTION = require('./package.json').testDistribution === true;
 // v2.5.56 tro lai dinh danh cai dat/userData 9meta de cap nhat de len ban cu.
 // Mot so may da tung chay v2.5.54 voi userData Nhayenzalo; mang cac muc con thieu
@@ -1520,13 +1539,24 @@ function setupDownloads(sess) {
 
 function createWindow() {
   const { windowBounds } = settings;
-  mainWindow = new BrowserWindow({
+  // [mac-diag-2.5.57] titleBarOverlay/titleBarStyle là API Windows; trên macOS có thể làm CHECK fail ngay khi tạo cửa sổ.
+  const isMac = process.platform === 'darwin';
+  const windowOptions = {
     width: windowBounds.width || 1200, height: windowBounds.height || 800, x: windowBounds.x, y: windowBounds.y,
     minWidth: 960, minHeight: 640, title: 'Nhà Yến Zalo', icon: path.join(__dirname, process.platform === 'win32' ? 'icon.ico' : 'icon.png'),
     backgroundColor: '#ffffff', show: !settings.startMinimized, autoHideMenuBar: true,
-    titleBarStyle: 'hidden',
-    titleBarOverlay: { color: '#ffffff', symbolColor: '#334155', height: TOPBAR_HEIGHT },
     webPreferences: { nodeIntegration: true, contextIsolation: false, spellcheck: false },
+  };
+  if (!isMac) {
+    windowOptions.titleBarStyle = 'hidden';
+    windowOptions.titleBarOverlay = { color: '#ffffff', symbolColor: '#334155', height: TOPBAR_HEIGHT };
+  }
+  mainWindow = new BrowserWindow(windowOptions);
+  mainWindow.webContents.on('render-process-gone', (_event, details) => {
+    console.error('[main] render-process-gone:', JSON.stringify(details));
+  });
+  mainWindow.webContents.on('did-fail-load', (_event, code, description, url) => {
+    console.error('[main] did-fail-load:', code, description, url);
   });
 
   app.on('session-created', (sess) => {
@@ -3342,14 +3372,16 @@ function registerGlobalShortcuts() {
 }
 
 app.whenReady().then(() => {
-  Menu.setApplicationMenu(null);
+  console.log('[startup] whenReady fired');
+  // [mac-diag-2.5.57] Bọc từng bước khởi động để biết chính xác bước nào làm sập app trên macOS.
+  try { Menu.setApplicationMenu(null); console.log('[startup] menu ok'); } catch (err) { console.error('[startup] menu failed:', err); }
   // Mở khoá không cần nhập lại nếu máy này đã được "Ghi nhớ" (DPAPI).
-  if (tryAutoUnlockFromDpapi()) appLocked = false;
-  nativeTheme.themeSource = settings.isDarkMode ? 'dark' : 'light';
-  createWindow();
-  createTray();
-  registerGlobalShortcuts();
-  setupAutoUpdater();
+try { if (tryAutoUnlockFromDpapi()) appLocked = false; } catch (err) { console.error('[startup] autoUnlock failed:', err); }
+  try { nativeTheme.themeSource = settings.isDarkMode ? 'dark' : 'light'; } catch (err) { console.error('[startup] theme failed:', err); }
+  try { createWindow(); console.log('[startup] window ok'); } catch (err) { console.error('[startup] createWindow failed:', err); }
+  try { createTray(); console.log('[startup] tray ok'); } catch (err) { console.error('[startup] createTray failed:', err); }
+  try { registerGlobalShortcuts(); console.log('[startup] shortcuts ok'); } catch (err) { console.error('[startup] shortcuts failed:', err); }
+  try { setupAutoUpdater(); console.log('[startup] updater ok'); } catch (err) { console.error('[startup] updater failed:', err); }
   if (mainWindow) mainWindow.once('ready-to-show', () => setTimeout(showWhatsNewOnce, 1500));
   // Chuẩn hóa ảnh mẫu sang PNG thật một lần, sau khi cửa sổ chính đã sẵn sàng.
   void migrateQuickReplyImagesToPng()
