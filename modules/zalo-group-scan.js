@@ -331,7 +331,6 @@ function buildPageExtractorScript(scanId) {
         });
       }
       emitted = groups.length;
-      finishDiscovery();
     };
 
     const inspect = (root) => {
@@ -471,6 +470,10 @@ function buildPageExtractorScript(scanId) {
       finished = true;
       cleanup();
       flush();
+      // Chi chot tong o lan cuoi. Truoc day flush() chot som 'discovery-complete' khi
+      // con 0 nhom -> main ghi totalUnique=0 vinh vien, roi complete() so sanh
+      // groups.size (1982) != totalUnique (0) va nem loi 'scan is incomplete'.
+      finishDiscovery();
       emit({ type: 'complete' });
     };
     const fail = (message) => {
@@ -485,7 +488,7 @@ function buildPageExtractorScript(scanId) {
       Promise.resolve(window.__9MetaZaloGroupAdapter.scan({
         control,
         onProgress: (progress) => emit({ type: 'progress', progress }),
-        onDiscoveryComplete: (summary) => { flush(); },
+        onDiscoveryComplete: (summary) => { /* adapter chi bao tien do; tong chot o complete() */ },
         onBatch: (dtos) => emit({ type: 'batch', dtos }),
         onFailure: (failure) => emit({ type: 'failure', failure }),
       })).then(() => { if (!control.cancelled) complete(); }).catch((error) => {
@@ -496,7 +499,7 @@ function buildPageExtractorScript(scanId) {
 
     scanManagers().then((fromManagers) => {
       if (control.isCancelled() || finished) return;
-      finishDiscovery();
+      if (!discoverySent) emit({ type: 'progress', progress: { pages: 1, discovered, totalUnique: found.size, processed: found.size } });
       if (found.size) { complete(); return; }
       // Chua co gi: mo tab Nhom de Zalo tu tai danh sach roi doc phan do ve.
       openGroups();
