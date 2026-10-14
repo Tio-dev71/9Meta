@@ -138,20 +138,43 @@ function buildLeaveGroupScript(groupId) {
   const encodedGroupId = JSON.stringify(String(groupId));
   return `(async function() {
     if (window.location.hostname !== 'chat.zalo.me') return { ok: false, message: 'Profile không ở Zalo Web.' };
-    var manager = window.groupManager;
-    if (!manager) return { ok: false, incompatible: true, message: 'Zalo Web chưa cung cấp groupManager.' };
     var groupId = ${encodedGroupId};
-    var group = typeof manager.getGroupByIdSync === 'function' ? manager.getGroupByIdSync(groupId) : null;
-    if (!group) return { ok: false, message: 'Nhóm không còn tồn tại trong phiên Zalo hiện tại.' };
+    // KHONG bam mot ten groupManager nua: Zalo doi ten la duong roi chet ngay giong
+    // loi quet truoc day. Thu nhieu ten de kiem tra nhom con ton tai; khong co manager
+    // nao thi van cho di tiep vi buoc roi that chi can API webpack ben duoi.
+    var managerNames = ['groupManager', 'GroupManager', 'groupListManager', 'GroupListManager', 'conversationManager', 'chatManager'];
+    var manager = null;
+    for (var managerIndex = 0; managerIndex < managerNames.length; managerIndex += 1) {
+      var candidate = window[managerNames[managerIndex]];
+      if (candidate && (typeof candidate.getGroupByIdSync === 'function' || typeof candidate.getGroupById === 'function')) { manager = candidate; break; }
+    }
+    var group = null;
+    try {
+      if (manager) {
+        group = typeof manager.getGroupByIdSync === 'function'
+          ? manager.getGroupByIdSync(groupId)
+          : (typeof manager.getGroupById === 'function' ? manager.getGroupById(groupId) : null);
+        if (group && typeof group.then === 'function') { try { group = await Promise.race([group, new Promise(function(resolve) { setTimeout(function() { resolve(null); }, 5000); })]); } catch { group = null; } }
+      }
+    } catch { group = null; }
+    if (manager && !group) return { ok: false, message: 'Nhóm không còn tồn tại trong phiên Zalo hiện tại.' };
     try {
       if (!window.__9MetaWebpackRequire) {
-        if (!window.webpackJsonp || typeof window.webpackJsonp.push !== 'function') {
-          return { ok: false, incompatible: true, message: 'Không tìm thấy bộ nạp module của Zalo Web.' };
-        }
         var probeId = '__9meta_leave_probe_' + Date.now();
         var probeModules = {};
         probeModules[probeId] = function(module, exports, require) { window.__9MetaWebpackRequire = require; };
-        window.webpackJsonp.push([[probeId], probeModules, [[probeId]]]);
+        try {
+          var globalRequire = window.webpackChunk_zalo_web && window.webpackChunk_zalo_web.push ? window.webpackChunk_zalo_web.push : null;
+          if (!globalRequire && window.webpackJsonp && typeof window.webpackJsonp.push === 'function') {
+            window.webpackJsonp.push([[probeId], probeModules, [[probeId]]]);
+          } else if (window.webpackChunk_zalo_web && typeof window.webpackChunk_zalo_web.push === 'function') {
+            window.webpackChunk_zalo_web.push([[probeId], probeModules, [[probeId]]]);
+          } else {
+            return { ok: false, incompatible: true, message: 'Không tìm thấy bộ nạp module của Zalo Web.' };
+          }
+        } catch (probeError) {
+          return { ok: false, incompatible: true, message: 'Không tìm thấy bộ nạp module của Zalo Web.' };
+        }
       }
       var require = window.__9MetaWebpackRequire;
       var leaveApi = null;
@@ -170,7 +193,7 @@ function buildLeaveGroupScript(groupId) {
       if (!leaveApi) {
         return { ok: false, incompatible: true, message: 'Không tìm thấy API rời nhóm đã xác minh trong phiên Zalo Web.' };
       }
-      var result = await leaveApi.leaveGroup(groupId);
+      var result = await Promise.race([leaveApi.leaveGroup(groupId), new Promise(function(_, reject) { setTimeout(function() { reject(new Error('Zalo không phản hồi lệnh rời nhóm (quá 20 giây).')); }, 20000); })]);
       if (result && (result.error || result.error_code || result.errorCode)) {
         return { ok: false, message: String(result.message || result.error || result.error_code || result.errorCode) };
       }
