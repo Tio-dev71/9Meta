@@ -23,6 +23,10 @@ contextBridge.exposeInMainWorld('messengerApp', {
   emitZaloUserScanEvent: (payload) => ipcRenderer.send('zalo-user-scan:event', payload),
   pasteQuickReplyImage: (imagePath) => ipcRenderer.invoke('quick-reply:paste-image', imagePath),
   pasteQuickReplyText: (text, mode) => ipcRenderer.invoke('quick-reply:paste-text', text, mode),
+  // Bao gia KHONG phai mau tin nhan nhanh nen khong di qua duong dan 'quick-reply:paste-text'
+  // (handler do chan dung noi dung co trong danh sach mau). Kenh rieng nay goi chu that
+  // theo tung dong vao o soan tin Zalo de Lexical ghi nhan state, Enter moi gui duoc.
+  insertQuoteComposerText: (text) => ipcRenderer.invoke('quote:insert-text', text),
 });
 
 // Neu main process chua kip dang ky listener thi sendSync tra ve undefined;
@@ -516,6 +520,17 @@ function runInjection(currentSettings) {
         var message = String(text || '');
         if (!message) return Promise.resolve({ ok: false, message: 'Nội dung báo giá đang trống.' });
         clearComposerText(input);
+        // Báo giá không thuộc danh sách mẫu nên đường dán clipboard bị main chặn
+        // (xem 'quick-reply:paste-text'): gõ thật từng dòng qua kệnh riêng; nếu
+        // kệnh chưa có (preload cũ) mới về lại đường DOM dự phòng.
+        if (window.messengerApp && window.messengerApp.insertQuoteComposerText) {
+          selectQuickReplyToken(input);
+          return window.messengerApp.insertQuoteComposerText(message)
+            .then(function(result) { return result || { ok: false, message: 'Không chèn được nội dung báo giá.' }; })
+            .catch(function(error) {
+              return { ok: false, message: String((error && error.message) || error) };
+            });
+        }
         return fillComposerWithRealPaste(input, message, message)
           .then(function(ok) {
             if (!ok) return { ok: false, message: 'Không chèn được nội dung vào ô soạn tin Zalo.' };

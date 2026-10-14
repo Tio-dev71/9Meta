@@ -2500,11 +2500,16 @@ function createWindow() {
     if (!view) return { ok: false, message: 'Tab Zalo không hợp lệ.' };
     const normalized = String(text ?? '').replace(/\r\n?/g, '\n');
     if (!normalized) return { ok: false, message: 'Mẫu không có nội dung chữ.' };
-    // Chỉ cho dán đúng nội dung một mẫu tin nhắn nhanh đã lưu.
-    const templates = (getWorkspaceState().data.quickReplies || [])
-      .map((reply) => String(reply.message || '').replace(/\r\n?/g, '\n'));
-    if (!templates.includes(normalized)) {
-      return { ok: false, message: 'Nội dung không thuộc danh sách tin nhắn nhanh.' };
+    // Dán clipboard chỉ cho nội dung tin nhắn nhanh đã lưu; báo giá dùng kệnh riêng 'quote:insert-text'.
+    let isTemplate = false;
+    try {
+      const templates = (getWorkspaceState().data.quickReplies || [])
+        .map((reply) => String(reply.message || '').replace(/\r\n?/g, '\n'));
+      isTemplate = templates.includes(normalized);
+    } catch {}
+    if (!isTemplate && mode !== 'type') {
+      // Bản cũ gửi báo giá qua đây; cho qua để không vỡ bản chạy -> gõ thật từng dòng.
+      mode = 'type';
     }
     if (event.sender.isDestroyed()) return { ok: false, message: 'Paste cancelled.' };
     event.sender.focus();
@@ -2535,6 +2540,39 @@ function createWindow() {
     // Gọi thẳng lệnh dán của Chromium, không phụ thuộc phím Ctrl+V giả lập.
     event.sender.paste();
     return { ok: true, chars: normalized.length };
+  });
+  ipcMain.handle('quote:insert-text', async (event, text) => {
+    // Gõ thật nội dung báo giá vào ô soạn Zalo. KHÔNG dùng 'quick-reply:paste-text'
+    // vì handler đó chỉ cho dán nội dung đúng mẫu tin nhắn nhanh đã lưu; báo giá do
+    // app dựng nên bị chặn và rơi về nhánh dựng DOM thủ công (chữ đè, Enter không gửi).
+    if (!storeUnlocked || appLocked) return { ok: false, locked: true, message: 'App locked.' };
+    const view = Object.values(browserViews).find((entry) => entry?.webContents === event.sender);
+    if (!view || view.webContents.isDestroyed()) return { ok: false, message: 'Tab Zalo không hợp lệ.' };
+    const normalized = String(text ?? '').replace(/\r\n?/g, '\n');
+    if (!normalized.trim()) return { ok: false, message: 'Nội dung báo giá đang trống.' };
+    try {
+      if (!(view.webContents.getURL() || '').includes('zalo.me')) {
+        return { ok: false, message: 'Tab hiện tại không phải Zalo.' };
+      }
+    } catch { return { ok: false, message: 'Không đọc được trang Zalo.' }; }
+    // insertText là input tin cậy của Chromium nên Lexical ghi nhận đúng state;
+    // xuống dòng bằng Shift+Enter đúng như người dùng gõ tay.
+    const lines = normalized.split('\n');
+    try {
+      event.sender.focus();
+      for (let i = 0; i < lines.length; i += 1) {
+        if (event.sender.isDestroyed()) return { ok: false, message: 'Đã hủy vì tab Zalo đóng.' };
+        if (i > 0) {
+          event.sender.sendInputEvent({ type: 'keyDown', keyCode: 'Enter', modifiers: ['shift'] });
+          event.sender.sendInputEvent({ type: 'keyUp', keyCode: 'Enter', modifiers: ['shift'] });
+          await new Promise((resolve) => setTimeout(resolve, 15));
+        }
+        if (lines[i]) await event.sender.insertText(lines[i]);
+      }
+      return { ok: true, mode: 'type', chars: normalized.length };
+    } catch (error) {
+      return { ok: false, message: error.message || String(error) };
+    }
   });
   ipcMain.handle('quick-reply:paste-image', async (event, imagePath) => {
     if (!storeUnlocked || appLocked) return { ok: false, locked: true, message: 'App locked.' };
