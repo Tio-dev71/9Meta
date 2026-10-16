@@ -143,21 +143,11 @@ function buildLeaveGroupScript(groupId) {
     // loi quet truoc day. Thu nhieu ten de kiem tra nhom con ton tai; khong co manager
     // nao thi van cho di tiep vi buoc roi that chi can API webpack ben duoi.
     var managerNames = ['groupManager', 'GroupManager', 'groupListManager', 'GroupListManager', 'conversationManager', 'chatManager'];
-    var manager = null;
+    var manager = null, managerName = null;
     for (var managerIndex = 0; managerIndex < managerNames.length; managerIndex += 1) {
       var candidate = window[managerNames[managerIndex]];
-      if (candidate && (typeof candidate.getGroupByIdSync === 'function' || typeof candidate.getGroupById === 'function')) { manager = candidate; break; }
+      if (candidate && (typeof candidate.getGroupByIdSync === 'function' || typeof candidate.getGroupById === 'function')) { manager = candidate; managerName = managerNames[managerIndex]; break; }
     }
-    var group = null;
-    try {
-      if (manager) {
-        group = typeof manager.getGroupByIdSync === 'function'
-          ? manager.getGroupByIdSync(groupId)
-          : (typeof manager.getGroupById === 'function' ? manager.getGroupById(groupId) : null);
-        if (group && typeof group.then === 'function') { try { group = await Promise.race([group, new Promise(function(resolve) { setTimeout(function() { resolve(null); }, 5000); })]); } catch { group = null; } }
-      }
-    } catch { group = null; }
-    if (manager && !group) return { ok: false, message: 'Nhóm không còn tồn tại trong phiên Zalo hiện tại.' };
     try {
       if (!window.__9MetaWebpackRequire) {
         var probeId = '__9meta_leave_probe_' + Date.now();
@@ -193,6 +183,35 @@ function buildLeaveGroupScript(groupId) {
       if (!leaveApi) {
         return { ok: false, incompatible: true, message: 'Không tìm thấy API rời nhóm đã xác minh trong phiên Zalo Web.' };
       }
+      // Khong co manager tren window: tim trong module webpack object co
+      // getGroupByIdSync — khong co no thi khong the xac minh nhom da mat.
+      if (!manager) {
+        for (var mId in modules) {
+          var mExp = modules[mId] && modules[mId].exports;
+          var mCands = [mExp, mExp && mExp.default];
+          if (mExp && typeof mExp === 'object') {
+            try { Object.keys(mExp).slice(0, 60).forEach(function(key) { mCands.push(mExp[key]); }); } catch {}
+          }
+          for (var mi = 0; mi < mCands.length; mi += 1) {
+            var mc = mCands[mi];
+            if (!mc || (typeof mc !== 'object' && typeof mc !== 'function')) continue;
+            try {
+              if (typeof mc.getGroupByIdSync === 'function') { manager = mc; managerName = 'webpack:' + String(mId); break; }
+            } catch {}
+          }
+          if (manager) break;
+        }
+      }
+      var group = null;
+      try {
+        if (manager) {
+          group = typeof manager.getGroupByIdSync === 'function'
+            ? manager.getGroupByIdSync(groupId)
+            : (typeof manager.getGroupById === 'function' ? manager.getGroupById(groupId) : null);
+          if (group && typeof group.then === 'function') { try { group = await Promise.race([group, new Promise(function(resolve) { setTimeout(function() { resolve(null); }, 5000); })]); } catch { group = null; } }
+        }
+      } catch { group = null; }
+      if (manager && !group) return { ok: false, managerName: managerName, message: 'Nhóm không còn trong danh sách nhóm của phiên Zalo hiện tại (có thể đã rời trước đó hoặc mã nhóm không khớp).' };
       // Zalo boc phan hoi nhieu lop: { data: "{\"0\":{\"error_code\":0,...}}" },
       // { data: { "0": { error_code: 0 } } } hoac { error_code: 0 }. Phai doc
       // qua het cac lop data/payload/result truoc khi ket luan — chi noi "thanh
@@ -275,36 +294,37 @@ function buildLeaveGroupScript(groupId) {
         if (text === undefined || text === '[object Object]') text = String(value);
         return (text || '').slice(0, limit);
       };
-      var rawResult = null, rawResult2 = null, attemptUsed = -1, attemptParams = '', attemptsTried = 0, hasSuccessReply = false, shapeNotes = '';
+      var rawResult = null, rawResult2 = null, attemptParams = '', attemptsTried = 0, hasSuccessReply = false, shapeNotes = '';
       var leaveApiSourceHead = '', leaveApiArity = -1;
       try { leaveApiArity = leaveApi.leaveGroup.length; } catch {}
-      try { leaveApiSourceHead = Function.prototype.toString.call(leaveApi.leaveGroup).slice(0, 300); } catch {}
-      // Zalo tra "Successful!" ca khi goi sai tham so (thieu memberId cua chinh
-      // minh trong nhom) nen chi mot dau khong du de ket luan. Cac dang goi duoc
-      // thu lan luot cho den khi nhom bien mat khoi cache cua Zalo:
+      try { leaveApiSourceHead = Function.prototype.toString.call(leaveApi.leaveGroup).replace(/\\s+/g, ' ').slice(0, 300); } catch {}
+      // Ma 0 o lop ngoai ({data:{error_code:0,data:"<ma hoa>"}}) chi la Zalo nhan
+      // lenh, KHONG chung minh da roi: noi dung that nam trong data ma hoa. Vi vay
+      // moi dang goi deu phai doc lai cache Zalo thay nhom bien mat moi tinh xong;
+      // con nhom thi thu dang goi tiep theo. Khong doc duoc cache = chua xac minh.
       //   0: leaveGroup(groupId)
       //   1: leaveGroup({ groupId: groupId })
       //   2: leaveGroup(groupId, memberId) — memberId lay tu chinh object nhom
-      // Tham so nao that bai se ghi vao log de lan sau sua dung nhanh.
-      var groupKeys = '';
+      var groupKeys = '', groupName = '';
       try { if (group && typeof group === 'object') groupKeys = Object.keys(group).slice(0, 40).join(','); } catch {}
       var memberId = '';
       var safeId = function(value) {
         if (value === undefined || value === null) return '';
         if (typeof value === 'object' || typeof value === 'function') return '';
-        return String(value).replace(/\s+/g, ' ').trim().slice(0, 128);
+        return String(value).replace(/\\s+/g, ' ').trim().slice(0, 128);
       };
       if (group && typeof group === 'object') {
         memberId = safeId(group.memberId) || safeId(group.member_id) || safeId(group.userIdInGroup)
           || safeId(group.userId) || safeId(group.myMemberId) || safeId(group.memberID) || '';
+        groupName = safeId(group.name) || safeId(group.displayName) || safeId(group.groupName) || '';
       }
       var paramShapes = [
         { desc: 'groupId', args: [groupId] },
         { desc: 'object{groupId}', args: [{ groupId: groupId }] },
         { desc: 'groupId+memberId', args: memberId ? [groupId, memberId] : null },
       ];
-      // Doc trang thái nhom tu cache Zalo: null = doc duoc va khong con; undefined
-      // = khong doc duoc (loi/timeout) — hai truong hop nay khac nhau.
+      // Doc trang thai nhom tu cache Zalo: null = doc duoc va khong con; undefined
+      // = khong doc duoc (khong co manager/loi) — hai truong hop nay khac nhau.
       var readGroupNow = function() {
         if (!manager) return undefined;
         var one = null;
@@ -316,11 +336,11 @@ function buildLeaveGroupScript(groupId) {
         if (one && typeof one.then === 'function') return undefined;
         return one || null;
       };
-      // Zalo bao xong nhung cache trong app chua dong bo: dam bao Zalo keo lai
-      // danh sach tu server truoc khi ket luan nhom da mat.
+      // Zalo bao xong nhung cache trong app chua dong bo: buoc Zalo keo lai danh
+      // sach tu server truoc khi ket luan nhom con hay mat.
       var forcedRefresh = false;
       var forceRefreshList = async function() {
-        if (!manager || forcedRefresh) return;
+        if (!manager) return;
         var refreshMethods = ['forceRequestGetGroupList', 'fetchGetGroupList'];
         for (var ri = 0; ri < refreshMethods.length; ri += 1) {
           if (typeof manager[refreshMethods[ri]] !== 'function') continue;
@@ -329,118 +349,70 @@ function buildLeaveGroupScript(groupId) {
           return;
         }
       };
+      // Xac minh: 2 lan doc lien tiep deu thay nhom mat (sau khi ep tai lai) moi dat.
+      var verifyStart = 0, verifyMs = 0, stillExists = null;
+      var verifyGone = async function() {
+        if (!manager) return false;
+        if (!verifyStart) verifyStart = Date.now();
+        var passedMissing = 0;
+        for (var check = 0; check < 3; check += 1) {
+          await new Promise(function(resolve) { setTimeout(resolve, check === 0 ? 1500 : 2500); });
+          var now = readGroupNow();
+          if (now && check === 0) { await forceRefreshList(); now = readGroupNow(); }
+          if (now === null) { passedMissing += 1; stillExists = false; if (passedMissing >= 2) break; }
+          else { passedMissing = 0; stillExists = now ? true : null; if (now) break; }
+        }
+        verifyMs = Date.now() - verifyStart;
+        return passedMissing >= 2;
+      };
       var withTimeoutCall = (fn) => Promise.race([fn(), new Promise(function(_, reject) { setTimeout(function() { reject(new Error('Zalo không phản hồi lệnh rời nhóm (quá 20 giây).')); }, 20000); })]);
-      var callError = null, callErrorShapes = '';
+      var lastError = '';
+      var verified = false;
       for (var attempt = 0; attempt < paramShapes.length; attempt += 1) {
         var shape = paramShapes[attempt];
         if (!shape.args) continue;
         attemptsTried += 1;
         var shapeArgs = shape.args;
+        var callResult;
         try {
-          var callResult = await withTimeoutCall(function() { return leaveApi.leaveGroup.apply(leaveApi, shapeArgs); });
-          if (attempt === 0) rawResult = callResult; else rawResult2 = callResult;
-          var shapeReply = readReply(callResult);
-          if (isSuccessCode(shapeReply.code)) {
-            attemptUsed = attempt; attemptParams = shape.desc; callError = null; hasSuccessReply = true;
-            shapeNotes = (shapeNotes ? shapeNotes + ',' : '') + shape.desc + ':0';
-            break;
-          }
-          if (shapeReply.code !== undefined) {
-            callError = { message: String(shapeReply.msg || ('Zalo báo lỗi rời nhóm: ' + String(shapeReply.code))), code: shapeReply.code };
-            shapeNotes += (shapeNotes ? ',' : '') + shape.desc + ':' + String(shapeReply.code);
-            callErrorShapes += (callErrorShapes ? ',' : '') + shape.desc;
-            continue;
-          }
-          attemptUsed = attempt; attemptParams = shape.desc; callError = null;
+          callResult = await withTimeoutCall(function() { return leaveApi.leaveGroup.apply(leaveApi, shapeArgs); });
         } catch (error) {
-          var errText = error && error.message ? error.message : String(error);
+          lastError = error && error.message ? error.message : String(error);
           shapeNotes += (shapeNotes ? ',' : '') + shape.desc + ':throw';
-          callError = { message: errText, code: 'throw' };
-          callErrorShapes += (callErrorShapes ? ',' : '') + shape.desc;
           continue;
         }
-        // Khong co ma loi nao trong phan hoi: cho cache cap nhat roi kiem tra;
-        // chi thu dang tham so tiep theo khi nhom van con sau khi cho nghi.
-        for (var settle = 0; settle < 3; settle += 1) {
-          await new Promise(function(resolve) { setTimeout(resolve, 1000); });
-          if (readGroupNow() === null) { hasSuccessReply = true; break; }
+        if (rawResult === null) rawResult = callResult; else rawResult2 = callResult;
+        var shapeReply = readReply(callResult);
+        if (shapeReply.code !== undefined && !isSuccessCode(shapeReply.code)) {
+          lastError = String(shapeReply.msg || ('Zalo báo lỗi rời nhóm: ' + String(shapeReply.code)));
+          shapeNotes += (shapeNotes ? ',' : '') + shape.desc + ':' + String(shapeReply.code);
+          continue;
         }
-        if (readGroupNow() === null) break;
-      }
-      if (callError && !hasSuccessReply) {
-        var failedText = stringifyRaw(rawResult2 !== null && rawResult2 !== undefined ? rawResult2 : rawResult, 2000);
-        return { ok: false, message: callError.message, attemptParams: attemptParams || ('fail:' + (shapeNotes || callErrorShapes)), attemptsTried: attemptsTried, shapeNotes: shapeNotes, groupKeys: groupKeys, memberId: memberId ? 'yes' : 'no', raw: failedText, rawType: typeof rawResult, leaveApiModuleId: leaveApiModuleId, leaveApiArity: leaveApiArity, leaveApiSourceHead: leaveApiSourceHead };
+        if (isSuccessCode(shapeReply.code)) hasSuccessReply = true;
+        attemptParams = shape.desc;
+        if (!manager) {
+          // Khong co cach doc lai trang thai nhom -> dung, khong thu them dang goi mu.
+          shapeNotes += (shapeNotes ? ',' : '') + shape.desc + ':' + (hasSuccessReply ? '0' : 'rong') + '-khong-kiem-tra';
+          break;
+        }
+        verified = await verifyGone();
+        shapeNotes += (shapeNotes ? ',' : '') + shape.desc + ':' + (hasSuccessReply ? '0' : 'rong') + (verified ? '-da-mat' : '-van-con');
+        if (verified || stillExists !== true) break;
       }
       var rawText = stringifyRaw(rawResult, 2000);
       var rawType = typeof rawResult;
       var rawKeys = '';
       try { if (rawResult && typeof rawResult === 'object') rawKeys = Object.keys(rawResult).slice(0, 20).join(','); } catch {}
       try { if (rawResult2 !== null && rawResult2 !== undefined) { rawText += ' | ' + stringifyRaw(rawResult2, 800); if (rawText.length > 3000) rawText = rawText.slice(0, 3000); } } catch {}
-      var errCode = readReply(rawResult).code, errMsg = readReply(rawResult).msg;
-      if (errCode !== undefined && !isSuccessCode(errCode) && !hasSuccessReply) {
-        return { ok: false, message: String(errMsg || ('Zalo báo lỗi rời nhóm: ' + String(errCode))), attemptParams: attemptParams || shapeNotes, attemptsTried: attemptsTried, shapeNotes: shapeNotes, groupKeys: groupKeys, raw: rawText, rawType: rawType, rawKeys: rawKeys, leaveApiModuleId: leaveApiModuleId, leaveApiArity: leaveApiArity, leaveApiSourceHead: leaveApiSourceHead };
-      }
-      var isEmptyReply = rawResult === null || rawResult === undefined || rawResult === true
-        || (typeof rawResult === 'string' && !rawResult.trim())
-        || (typeof rawResult === 'object' && Object.keys(rawResult).length === 0);
-      // Xac minh: nhom phai bien mat khoi manager sau khi roi. Phan biet "doc duoc va khong con" vs
-      // "loi/timeout" — tuong lai: loi/timeout = unverified, khong ok:true.
-      var managerName = null;
-      for (var mn = 0; mn < managerNames.length; mn++) if (window[managerNames[mn]] === manager) { managerName = managerNames[mn]; break; }
-      var verified = false, stillExists = null, verifyTimedOut = false, verifyErrored = false, verifyMs = 0;
-      // Khi Zalo da tra ma 0 nhung nhom van con trong cache: cache phia app co the
-      // chua dong bo. Buoc Zalo keo lai danh sach truoc khi ket luan that bai.
-      var forcedRefreshUsed = false;
-      if (manager) {
-        var verifyStart = Date.now();
-        var checks = 0;
-        var passedMissing = 0;
-        while (checks < 3) {
-          await new Promise(function(resolve) { setTimeout(resolve, checks === 0 ? 1500 : 3000); });
-          var one = null, oneErr = false, oneTO = false;
-          try {
-            one = typeof manager.getGroupByIdSync === 'function'
-              ? manager.getGroupByIdSync(groupId)
-              : (typeof manager.getGroupById === 'function' ? manager.getGroupById(groupId) : null);
-            if (one && typeof one.then === 'function') {
-              try { one = await Promise.race([one, new Promise(function(resolve) { setTimeout(function() { oneTO = true; resolve(null); }, 4000); })]); if (oneTO) verifyTimedOut = true; } catch { one = null; oneErr = true; verifyErrored = true; }
-            }
-          } catch { one = null; oneErr = true; verifyErrored = true; }
-          if (one && hasSuccessReply && !forcedRefreshUsed) {
-            forcedRefreshUsed = true;
-            await forceRefreshList();
-            if (forcedRefresh) { checks += 1; continue; }
-          }
-          stillExists = one;
-          checks += 1;
-          if (!one && !oneErr && !oneTO) passedMissing += 1;
-          else passedMissing = 0;
-          if (one) break;
-        }
-        verifyMs = Date.now() - verifyStart;
-        verified = (passedMissing >= 2);
-        var diag = { attemptParams: attemptParams, attemptsTried: attemptsTried, shapeNotes: shapeNotes, groupKeys: groupKeys, memberId: memberId ? 'yes' : 'no', forcedRefresh: forcedRefresh };
-        if (stillExists) {
-          var hint = rawText ? (' Phản hồi Zalo: ' + rawText) : '';
-          return Object.assign({ ok: false, verified: false, stillExists: true, managerName: managerName, raw: rawText, rawType: rawType, rawKeys: rawKeys, verifyMs: verifyMs, leaveApiArity: leaveApiArity, leaveApiSourceHead: leaveApiSourceHead, message: 'Zalo chưa rời nhóm (nhóm vẫn còn trong phiên hiện tại).' + hint }, diag);
-        }
-        if (!verified) {
-          // Khong xac minh duoc (loi/timeout hoac chi doc duoc 1 lan missing) — neu
-          // reply trong thi khong du co so bao ok.
-          if (isEmptyReply || !hasSuccessReply) {
-            return Object.assign({ ok: false, verified: false, stillExists: null, managerName: managerName, raw: rawText, rawType: rawType, rawKeys: rawKeys, verifyMs: verifyMs, leaveApiArity: leaveApiArity, leaveApiSourceHead: leaveApiSourceHead, message: 'Chưa xác minh được lệnh rời nhóm (không đọc được trạng thái nhóm sau khi rời). Phản hồi Zalo: ' + (rawText || String(rawResult)) }, diag);
-          }
-          // Zalo xac nhan ma 0 nhung chi doc duoc trang thai 1 lan — bao ok, giu
-          // danh sach + quota cho nghi, kem raw de chan doan.
-          return Object.assign({ ok: true, verified: false, managerName: managerName, raw: rawText, rawType: rawType, rawKeys: rawKeys, verifyMs: verifyMs, leaveApiArity: leaveApiArity, leaveApiSourceHead: leaveApiSourceHead, method: 'verified-webpack-leave-api-unverified' }, diag);
-        }
-        return Object.assign({ ok: true, verified: true, managerName: managerName, raw: rawText, rawType: rawType, rawKeys: rawKeys, verifyMs: verifyMs, leaveApiArity: leaveApiArity, leaveApiSourceHead: leaveApiSourceHead, method: 'verified-webpack-leave-api' }, diag);
-      }
-      // Khong co manager de xac minh -> chi chap nhan khi Zalo tra ma 0 that.
-      if (!hasSuccessReply || errCode === undefined || !isSuccessCode(errCode)) {
-        return { ok: false, verified: false, stillExists: null, attemptParams: attemptParams || shapeNotes, attemptsTried: attemptsTried, shapeNotes: shapeNotes, groupKeys: groupKeys, raw: rawText, rawType: rawType, rawKeys: rawKeys, leaveApiArity: leaveApiArity, leaveApiSourceHead: leaveApiSourceHead, message: isEmptyReply ? ('Chưa xác minh được lệnh rời nhóm. Phản hồi Zalo: ' + (rawText || String(rawResult))) : ('Chưa xác minh được lệnh rời nhóm. Phản hồi Zalo: ' + rawText) };
-      }
-      return { ok: true, verified: true, managerName: managerName, attemptParams: attemptParams, attemptsTried: attemptsTried, shapeNotes: shapeNotes, groupKeys: groupKeys, raw: rawText, rawType: rawType, rawKeys: rawKeys, verifyMs: verifyMs, leaveApiArity: leaveApiArity, leaveApiSourceHead: leaveApiSourceHead, method: 'verified-webpack-leave-api' };
+      var diag = {
+        attemptParams: attemptParams || shapeNotes, attemptsTried: attemptsTried, shapeNotes: shapeNotes, groupKeys: groupKeys, groupName: groupName,
+        memberId: memberId ? 'yes' : 'no', forcedRefresh: forcedRefresh, managerName: managerName, stillExists: stillExists, verifyMs: verifyMs,
+        raw: rawText, rawType: rawType, rawKeys: rawKeys, leaveApiModuleId: leaveApiModuleId, leaveApiArity: leaveApiArity, leaveApiSourceHead: leaveApiSourceHead,
+      };
+      if (verified) return Object.assign({ ok: true, verified: true, method: 'verified-webpack-leave-api' }, diag);
+      if (rawResult === null) return Object.assign({ ok: false, verified: false, message: lastError || 'Zalo không nhận lệnh rời nhóm.' }, diag);
+      if (stillExists === true) return Object.assign({ ok: false, verified: false, message: 'Zalo chưa rời nhóm (nhóm vẫn còn trong danh sách sau khi tải lại).' }, diag);
+      return Object.assign({ ok: false, verified: false, message: 'Chưa xác minh được lệnh rời nhóm: ' + (manager ? 'không đọc được trạng thái nhóm sau khi rời.' : 'không tìm thấy bộ quản lý nhóm của Zalo để kiểm tra.') + ' Hãy tìm lại nhóm trên Zalo.' }, diag);
     } catch (error) {
       return { ok: false, message: error && error.message ? error.message : String(error) };
     }

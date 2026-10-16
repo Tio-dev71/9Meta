@@ -69,18 +69,28 @@ test('leave-group script verifies the group is gone instead of trusting an empty
 
 test('leave-group thu nhieu dang tham so va chi ket luan khi nhom bien mat khoi cache Zalo', () => {
   const script = buildLeaveGroupScript('group-123');
-  // Zalo tra "Successful!" ca khi goi thieu tham so -> phai thu ca ba dang goi
-  // va chi dung lai khi cache Zalo bao nhom da bien mat.
+  // Ma 0 lop ngoai chi la Zalo nhan lenh (data that bi ma hoa) -> moi dang goi
+  // deu phai doc lai cache thay nhom mat; con nhom thi thu dang tiep theo.
   assert.match(script, /object\{groupId\}/);
   assert.match(script, /groupId\+memberId/);
-  assert.match(script, /readGroupNow\(\) === null/);
+  assert.match(script, /now === null/);
   assert.match(script, /memberId = safeId\(group\.memberId\)/);
-  // Da co ma 0 that thi dung thu them dang goi khac (dang sau nem loi rieng).
-  assert.match(script, /isSuccessCode\(shapeReply\.code\)[\s\S]*break;/);
+  assert.match(script, /verified = await verifyGone\(\)/);
+  assert.match(script, /if \(verified \|\| stillExists !== true\) break;/);
   // Cache Zalo chua dong bo -> phai force keo lai danh sach truoc khi ket luan.
   assert.match(script, /forceRequestGetGroupList/);
   assert.match(script, /forcedRefresh/);
+  // Tim manager trong module webpack khi window khong co.
+  assert.match(script, /managerName = 'webpack:'/);
   assert.doesNotThrow(() => new Function(script));
+});
+
+test('leave-group khong bao giờ ok khi khong co manager de xac minh', () => {
+  const script = buildLeaveGroupScript('group-123');
+  // Chi mot duong ok:true duy nhat, va no phu thuoc verified.
+  assert.equal((script.match(/ok: true/g) || []).length, 1);
+  assert.match(script, /if \(verified\) return Object\.assign\(\{ ok: true, verified: true/);
+  assert.match(script, /không tìm thấy bộ quản lý nhóm của Zalo để kiểm tra/);
 });
 
 test('leave-group error extraction fails on any nonzero code at any level', () => {

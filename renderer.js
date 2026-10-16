@@ -1252,6 +1252,9 @@ function appendZaloGroupActionLog(group, ok, message, extra) {
     extra?.verifyMs != null ? `xac-minh:${extra.verifyMs}ms` : '',
     extra?.stillExists != null ? (extra.stillExists ? 'van-con' : 'da-mat') : '',
     extra?.verified != null ? (extra.verified ? 'da-xac-minh' : 'chua-xac-minh') : '',
+    extra?.groupName ? `ten-zalo:${String(extra.groupName).slice(0, 60)}` : '',
+    extra?.leaveApiArity != null && extra.leaveApiArity >= 0 ? `arity:${extra.leaveApiArity}` : '',
+    extra?.leaveApiSourceHead ? `src:${String(extra.leaveApiSourceHead).slice(0, 300)}` : '',
     raw ? `Zalo:${raw}` : '',
   ].filter(Boolean).join(' • ');
   const messageHtml = ok
