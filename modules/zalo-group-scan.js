@@ -193,11 +193,49 @@ function buildLeaveGroupScript(groupId) {
       if (!leaveApi) {
         return { ok: false, incompatible: true, message: 'Không tìm thấy API rời nhóm đã xác minh trong phiên Zalo Web.' };
       }
-      var result = await Promise.race([leaveApi.leaveGroup(groupId), new Promise(function(_, reject) { setTimeout(function() { reject(new Error('Zalo không phản hồi lệnh rời nhóm (quá 20 giây).')); }, 20000); })]);
-      if (result && (result.error || result.error_code || result.errorCode)) {
-        return { ok: false, message: String(result.message || result.error || result.error_code || result.errorCode) };
+      var rawResult = null;
+      try {
+        rawResult = await Promise.race([leaveApi.leaveGroup(groupId), new Promise(function(_, reject) { setTimeout(function() { reject(new Error('Zalo không phản hồi lệnh rời nhóm (quá 20 giây).')); }, 20000); })]);
+      } catch (callError) {
+        return { ok: false, message: callError && callError.message ? callError.message : String(callError) };
       }
-      return { ok: true, method: 'verified-webpack-leave-api' };
+      var rawText = '';
+      try { rawText = JSON.stringify(rawResult); if (rawText && rawText.length > 2000) rawText = rawText.slice(0, 2000); } catch { rawText = String(rawResult); if (rawText.length > 2000) rawText = rawText.slice(0, 2000); }
+      if (rawResult && typeof rawResult === 'object') {
+        var dataObj = rawResult.data && typeof rawResult.data === 'object' ? rawResult.data : null;
+        var errCode = rawResult.error ?? rawResult.error_code ?? rawResult.errorCode ?? rawResult.code ?? rawResult.ret ?? (dataObj ? (dataObj.error ?? dataObj.error_code ?? dataObj.errorCode ?? dataObj.code) : undefined);
+        if (errCode !== undefined && errCode !== null && String(errCode) !== '0' && errCode !== 0) {
+          return { ok: false, message: String(rawResult.message || rawResult.error || rawResult.error_code || rawResult.errorCode || ('Zalo báo lỗi rời nhóm: ' + String(errCode))), raw: rawText };
+        }
+      }
+      // Xac minh: nhom phai bien mat khoi manager sau khi roi. Neu khong co manager
+      // thi khong xac minh duoc — chi chap nhan khi api tra ma 0 ro rang.
+      if (manager) {
+        await new Promise(function(resolve) { setTimeout(resolve, 1300); });
+        var stillExists = null;
+        try {
+          stillExists = typeof manager.getGroupByIdSync === 'function'
+            ? manager.getGroupByIdSync(groupId)
+            : (typeof manager.getGroupById === 'function' ? manager.getGroupById(groupId) : null);
+          if (stillExists && typeof stillExists.then === 'function') {
+            try { stillExists = await Promise.race([stillExists, new Promise(function(resolve) { setTimeout(function() { resolve(null); }, 4000); })]); } catch { stillExists = null; }
+          }
+        } catch { stillExists = null; }
+        if (stillExists) {
+          var hint = rawText ? (' Phản hồi Zalo: ' + rawText) : '';
+          return { ok: false, message: 'Zalo chưa rời nhóm (nhóm vẫn còn trong phiên hiện tại).' + hint, raw: rawText };
+        }
+      } else {
+        // Khong co manager de xac minh -> yeu cau phai co ma thanh cong ro rang.
+        var needsCode = rawResult && typeof rawResult === 'object'
+          ? (rawResult.error_code ?? rawResult.errorCode ?? rawResult.code ?? rawResult.error ?? (rawResult.data && (rawResult.data.error_code ?? rawResult.data.errorCode)))
+          : undefined;
+        if (needsCode === undefined || String(needsCode) !== '0') {
+          var hint2 = rawText ? (' Phản hồi Zalo: ' + rawText) : ' Zalo không trả về mã thành công rõ ràng.';
+          return { ok: false, message: 'Chưa xác minh được lệnh rời nhóm.' + hint2, raw: rawText };
+        }
+      }
+      return { ok: true, method: 'verified-webpack-leave-api', raw: rawText };
     } catch (error) {
       return { ok: false, message: error && error.message ? error.message : String(error) };
     }

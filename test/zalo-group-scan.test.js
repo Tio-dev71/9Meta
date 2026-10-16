@@ -58,6 +58,16 @@ test('leave-group script is scoped to one group and never reads session secrets'
   assert.doesNotMatch(script, /document\.cookie|localStorage|sessionStorage/);
 });
 
+test('leave-group script verifies the group is gone instead of trusting an empty reply', () => {
+  const script = buildLeaveGroupScript('group-123');
+  // Phai co buoc xac minh nhom da bien mat khoi manager sau khi goi API.
+  assert.match(script, /stillExists|getGroupByIdSync/);
+  // Khong duoc bao ok mac dinh khi API tra ve rong — phan hoi that phai kem theo.
+  assert.match(script, /rawText/);
+  assert.doesNotMatch(script, /return \{ ok: true, method: 'verified-webpack-leave-api' \};\s*\} catch/);
+  assert.doesNotThrow(() => new Function(script));
+});
+
 test('detects duplicate names that cannot be targeted safely by name-based sending', () => {
   const groups = [
     { groupId: '1', name: 'Nhóm Demo' },
