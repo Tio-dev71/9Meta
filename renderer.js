@@ -1237,10 +1237,22 @@ function openZaloGroupAction(mode) {
   document.getElementById(mode === 'send' ? 'zalo-groups-message' : 'zalo-groups-action-run').focus();
 }
 
-function appendZaloGroupActionLog(group, ok, message) {
+function appendZaloGroupActionLog(group, ok, message, extra) {
   const row = document.createElement('div');
   row.className = 'list-item';
-  row.innerHTML = `<strong>${escapeHtml(group.name)}</strong><span class="muted">${ok ? 'Thành công' : `Lỗi: ${escapeHtml(message || 'Không rõ')}`}</span>`;
+  const raw = String(extra?.raw ?? group?.raw ?? '').trim().slice(0, 400);
+  const detail = [
+    extra?.managerName ? `manager:${extra.managerName}` : '',
+    extra?.method ? `method:${extra.method}` : '',
+    extra?.verifyMs != null ? `xac-minh:${extra.verifyMs}ms` : '',
+    extra?.stillExists != null ? (extra.stillExists ? 'van-con' : 'da-mat') : '',
+    extra?.verified != null ? (extra.verified ? 'da-xac-minh' : 'chua-xac-minh') : '',
+    raw ? `Zalo:${raw}` : '',
+  ].filter(Boolean).join(' • ');
+  const messageHtml = ok
+    ? (detail ? `${escapeHtml(message || 'Thành công')} — <span class="muted">${escapeHtml(detail)}</span>` : escapeHtml(message || 'Thành công'))
+    : `Lỗi: ${escapeHtml(message || 'Không rõ')}${detail ? ` — <span class="muted">${escapeHtml(detail)}</span>` : ''}`;
+  row.innerHTML = `<strong>${escapeHtml(group.name)}</strong><span class="muted">${messageHtml}</span>`;
   document.getElementById('zalo-groups-action-log').appendChild(row);
 }
 
@@ -1305,7 +1317,7 @@ async function runZaloGroupAction() {
         zaloGroupScanGroups = zaloGroupScanGroups.filter((item) => item.groupId !== group.groupId);
       }
     } else failed += 1;
-    appendZaloGroupActionLog(group, !!result?.ok, result?.message);
+    appendZaloGroupActionLog(group, !!result?.ok, result?.message, result);
     if (index < plan.length - 1 && !zaloGroupAction.stopRequested) {
       const waitMs = mode === 'send'
         ? (result?.ok

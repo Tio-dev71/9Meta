@@ -177,7 +177,7 @@ function buildLeaveGroupScript(groupId) {
         }
       }
       var require = window.__9MetaWebpackRequire;
-      var leaveApi = null;
+      var leaveApi = null; var leaveApiModuleId = null;
       var modules = require && require.c ? require.c : {};
       for (var moduleId in modules) {
         var exported = modules[moduleId] && modules[moduleId].exports;
@@ -186,7 +186,7 @@ function buildLeaveGroupScript(groupId) {
           var candidate = candidates[index];
           if (!candidate || typeof candidate.leaveGroup !== 'function') continue;
           var source = Function.prototype.toString.call(candidate.leaveGroup);
-          if (/\\/api\\/group\\/leave/.test(source)) { leaveApi = candidate; break; }
+          if (/\\/api\\/group\\/leave/.test(source)) { leaveApi = candidate; leaveApiModuleId = String(moduleId); break; }
         }
         if (leaveApi) break;
       }
@@ -194,48 +194,86 @@ function buildLeaveGroupScript(groupId) {
         return { ok: false, incompatible: true, message: 'Không tìm thấy API rời nhóm đã xác minh trong phiên Zalo Web.' };
       }
       var rawResult = null;
+      var leaveApiSourceHead = '', leaveApiArity = -1;
       try {
         rawResult = await Promise.race([leaveApi.leaveGroup(groupId), new Promise(function(_, reject) { setTimeout(function() { reject(new Error('Zalo không phản hồi lệnh rời nhóm (quá 20 giây).')); }, 20000); })]);
       } catch (callError) {
         return { ok: false, message: callError && callError.message ? callError.message : String(callError) };
       }
       var rawText = '';
+      var rawType = typeof rawResult;
+      var rawKeys = '';
       try { rawText = JSON.stringify(rawResult); if (rawText && rawText.length > 2000) rawText = rawText.slice(0, 2000); } catch { rawText = String(rawResult); if (rawText.length > 2000) rawText = rawText.slice(0, 2000); }
-      if (rawResult && typeof rawResult === 'object') {
-        var dataObj = rawResult.data && typeof rawResult.data === 'object' ? rawResult.data : null;
-        var errCode = rawResult.error ?? rawResult.error_code ?? rawResult.errorCode ?? rawResult.code ?? rawResult.ret ?? (dataObj ? (dataObj.error ?? dataObj.error_code ?? dataObj.errorCode ?? dataObj.code) : undefined);
-        if (errCode !== undefined && errCode !== null && String(errCode) !== '0' && errCode !== 0) {
-          return { ok: false, message: String(rawResult.message || rawResult.error || rawResult.error_code || rawResult.errorCode || ('Zalo báo lỗi rời nhóm: ' + String(errCode))), raw: rawText };
+      try { if (rawResult && typeof rawResult === 'object') rawKeys = Object.keys(rawResult).slice(0, 20).join(','); } catch {}
+      try { leaveApiArity = leaveApi.leaveGroup.length; } catch {}
+      try { leaveApiSourceHead = Function.prototype.toString.call(leaveApi.leaveGroup).slice(0, 300); } catch {}
+      // Ham trich ma loi dung chung: duyet ca cap ngoai va data, bat ky ma nao != 0 deu fail.
+      var errCode = undefined, errMsg = undefined;
+      try {
+        if (rawResult && typeof rawResult === 'object') {
+          var dataObj = rawResult.data && typeof rawResult.data === 'object' ? rawResult.data : null;
+          var cands = [
+            rawResult.error, rawResult.error_code, rawResult.errorCode, rawResult.code, rawResult.ret,
+            dataObj && dataObj.error, dataObj && dataObj.error_code, dataObj && dataObj.errorCode, dataObj && dataObj.code
+          ];
+          for (var c = 0; c < cands.length; c++) if (cands[c] !== undefined && cands[c] !== null && String(cands[c]) !== '') { errCode = cands[c]; break; }
+          errMsg = rawResult.message || rawResult.msg || (dataObj && (dataObj.message || dataObj.msg)) || '';
         }
+      } catch {}
+      if (errCode !== undefined && String(errCode) !== '0' && errCode !== 0) {
+        return { ok: false, message: String(errMsg || rawResult.error || rawResult.error_code || rawResult.errorCode || ('Zalo báo lỗi rời nhóm: ' + String(errCode))), raw: rawText, rawType: rawType, rawKeys: rawKeys, leaveApiModuleId: leaveApiModuleId, leaveApiArity: leaveApiArity, leaveApiSourceHead: leaveApiSourceHead };
       }
-      // Xac minh: nhom phai bien mat khoi manager sau khi roi. Neu khong co manager
-      // thi khong xac minh duoc — chi chap nhan khi api tra ma 0 ro rang.
+      var isEmptyReply = rawResult === null || rawResult === undefined || rawResult === true
+        || (typeof rawResult === 'string' && !rawResult.trim())
+        || (typeof rawResult === 'object' && Object.keys(rawResult).length === 0);
+      // Xac minh: nhom phai bien mat khoi manager sau khi roi. Phan biet "doc duoc va khong con" vs
+      // "loi/timeout" — tuong lai: loi/timeout = unverified, khong ok:true.
+      var managerName = null;
+      for (var mn = 0; mn < managerNames.length; mn++) if (window[managerNames[mn]] === manager) { managerName = managerNames[mn]; break; }
+      var verified = false, stillExists = null, verifyTimedOut = false, verifyErrored = false, verifyMs = 0;
       if (manager) {
-        await new Promise(function(resolve) { setTimeout(resolve, 1300); });
-        var stillExists = null;
-        try {
-          stillExists = typeof manager.getGroupByIdSync === 'function'
-            ? manager.getGroupByIdSync(groupId)
-            : (typeof manager.getGroupById === 'function' ? manager.getGroupById(groupId) : null);
-          if (stillExists && typeof stillExists.then === 'function') {
-            try { stillExists = await Promise.race([stillExists, new Promise(function(resolve) { setTimeout(function() { resolve(null); }, 4000); })]); } catch { stillExists = null; }
-          }
-        } catch { stillExists = null; }
+        var verifyStart = Date.now();
+        var checks = 0;
+        var passedMissing = 0;
+        while (checks < 2) {
+          await new Promise(function(resolve) { setTimeout(resolve, checks === 0 ? 1500 : 3000); });
+          var one = null, oneErr = false, oneTO = false;
+          try {
+            one = typeof manager.getGroupByIdSync === 'function'
+              ? manager.getGroupByIdSync(groupId)
+              : (typeof manager.getGroupById === 'function' ? manager.getGroupById(groupId) : null);
+            if (one && typeof one.then === 'function') {
+              try { one = await Promise.race([one, new Promise(function(resolve) { setTimeout(function() { oneTO = true; resolve(null); }, 4000); })]); if (oneTO) verifyTimedOut = true; } catch { one = null; oneErr = true; verifyErrored = true; }
+            }
+          } catch { one = null; oneErr = true; verifyErrored = true; }
+          stillExists = one;
+          checks += 1;
+          if (!one && !oneErr && !oneTO) passedMissing += 1;
+          else passedMissing = 0;
+          if (one) break;
+        }
+        verifyMs = Date.now() - verifyStart;
+        verified = (passedMissing >= 2);
         if (stillExists) {
           var hint = rawText ? (' Phản hồi Zalo: ' + rawText) : '';
-          return { ok: false, message: 'Zalo chưa rời nhóm (nhóm vẫn còn trong phiên hiện tại).' + hint, raw: rawText };
+          return { ok: false, verified: false, stillExists: true, managerName: managerName, raw: rawText, rawType: rawType, rawKeys: rawKeys, verifyMs: verifyMs, leaveApiArity: leaveApiArity, leaveApiSourceHead: leaveApiSourceHead, message: 'Zalo chưa rời nhóm (nhóm vẫn còn trong phiên hiện tại).' + hint };
+        }
+        if (!verified) {
+          // Khong xac minh duoc (loi/timeout hoac chi 1 lan missing) — neu reply trong thi khong du co so bao ok.
+          if (isEmptyReply) {
+            return { ok: false, verified: false, stillExists: null, managerName: managerName, raw: rawText, rawType: rawType, rawKeys: rawKeys, verifyMs: verifyMs, leaveApiArity: leaveApiArity, leaveApiSourceHead: leaveApiSourceHead, message: 'Chưa xác minh được lệnh rời nhóm (không đọc được trạng thái nhóm sau khi rời). Phản hồi Zalo: ' + (rawText || String(rawResult)) };
+          }
+          // Reply co ma 0 nhung khong xac minh duoc qua manager — bao ok nhung ghi la unverified + kèm raw de chan doan.
+          return { ok: true, verified: false, managerName: managerName, raw: rawText, rawType: rawType, rawKeys: rawKeys, verifyMs: verifyMs, leaveApiArity: leaveApiArity, leaveApiSourceHead: leaveApiSourceHead, method: 'verified-webpack-leave-api-unverified' };
         }
       } else {
         // Khong co manager de xac minh -> yeu cau phai co ma thanh cong ro rang.
-        var needsCode = rawResult && typeof rawResult === 'object'
-          ? (rawResult.error_code ?? rawResult.errorCode ?? rawResult.code ?? rawResult.error ?? (rawResult.data && (rawResult.data.error_code ?? rawResult.data.errorCode)))
-          : undefined;
-        if (needsCode === undefined || String(needsCode) !== '0') {
-          var hint2 = rawText ? (' Phản hồi Zalo: ' + rawText) : ' Zalo không trả về mã thành công rõ ràng.';
-          return { ok: false, message: 'Chưa xác minh được lệnh rời nhóm.' + hint2, raw: rawText };
+        if (errCode === undefined || String(errCode) !== '0') {
+          return { ok: false, verified: false, stillExists: null, raw: rawText, rawType: rawType, rawKeys: rawKeys, leaveApiArity: leaveApiArity, leaveApiSourceHead: leaveApiSourceHead, message: isEmptyReply ? ('Chưa xác minh được lệnh rời nhóm. Phản hồi Zalo: ' + (rawText || String(rawResult))) : ('Chưa xác minh được lệnh rời nhóm. Phản hồi Zalo: ' + rawText) };
         }
+        verified = true;
       }
-      return { ok: true, method: 'verified-webpack-leave-api', raw: rawText };
+      return { ok: true, verified: true, managerName: managerName, raw: rawText, rawType: rawType, rawKeys: rawKeys, verifyMs: verifyMs, leaveApiArity: leaveApiArity, leaveApiSourceHead: leaveApiSourceHead, method: 'verified-webpack-leave-api' };
     } catch (error) {
       return { ok: false, message: error && error.message ? error.message : String(error) };
     }
@@ -284,11 +322,11 @@ function buildPageExtractorScript(scanId) {
     if (window.__9MetaZaloGroupScanCleanup) { try { window.__9MetaZaloGroupScanCleanup(); } catch {} }
     const control = { cancelled: false, isCancelled() { return this.cancelled; } };
     window.__9MetaZaloGroupScans[scanId] = control;
-    const BATCH = 50, MAX_NODES = 12000, MAX_TEXT = 500;
+    const BATCH = 50, MAX_NODES = 60000, MAX_TEXT = 500;
     const found = new Map();
     const restores = [];
     let emitted = 0, discovered = 0, duplicates = 0;
-    let discoverySent = false, finished = false, observer = null, timer = null, scrollTimer = null;
+    let discoverySent = false, finished = false, observer = null, timer = null, scrollTimer = null, stabilityTimer = null, stabilityChecks = 0, lastStableSize = 0;
 
     const text = (value, max = MAX_TEXT) => String(value ?? '')
       .normalize('NFC')
@@ -299,20 +337,27 @@ function buildPageExtractorScript(scanId) {
 
     // "Hinh dang nhom": khong phai object danh ba (user) va co it nhat mot dau hieu
     // danh danh nhom. Chi lay ID de so sanh, khong khop digits de tranh loai.
-    // KHONG loai vi co displayName/avatar: nhom Zalo cung co hai key do. Chi loai
-    // khi object mang danh dau rieng cua danh ba (ten Zalo, so dien thoai, trang
-    // thai ban) va khong mang bat ky dau hieu nhom nao.
+    // 'setting'/'verified' KHONG duoc dung de loai: object nhom Zalo that thuong
+    // co truong setting (cai dat nhom), dung chung la loai gan het nhom that.
     const GROUP_MARKERS = ['totalMember', 'total_member', 'memberCount', 'memberIds', 'members', 'adminIds', 'creatorId', 'createdTime', 'groupName', 'groupAvatar'];
-    const USER_MARKERS = ['zaloName', 'phoneNumber', 'isFriend', 'friendStatus', 'setting', 'verified'];
+    const USER_MARKERS = ['zaloName', 'phoneNumber', 'isFriend', 'friendStatus'];
+    const GROUP_NAME_KEYS = ['displayName', 'groupName', 'name', 'title', 'alias', 'currentName'];
     const looksLikeGroup = (item) => {
       if (!item || typeof item !== 'object' || Array.isArray(item)) return false;
       const id = item.groupId ?? item.globalId ?? item.conversationId ?? item.chatId ?? item.userId ?? item.id;
       if (!id || typeof id === 'object' || !String(id).trim()) return false;
+      const hasGroupId = !!(item.groupId ?? item.globalId);
       const hasGroupShape = GROUP_MARKERS.some((key) => key in item) || (Array.isArray(item.members));
-      if (!hasGroupShape) return false;
-      // Nhom la doi tuong cua Zalo: uu tien groupId/globalId/conversationId truoc.
-      if (!item.groupId && !item.globalId && !item.conversationId) return false;
-      return !USER_MARKERS.some((key) => key in item);
+      if (hasGroupShape) {
+        // Co dang nhom: chi loai khi la object danh ba ro rang (co dau user ma
+        // khong co id nhom nao). 'setting'/'verified' khong phai dau hieu user.
+        if (!hasGroupId && !item.conversationId) return false;
+        return !USER_MARKERS.some((key) => key in item);
+      }
+      // Muc danh sach gon {groupId, displayName}: nhan khi co groupId/globalId + ten.
+      // conversationId don thuan (hoi thoai 1-1) van can dang nhom moi nhan.
+      if (!hasGroupId) return false;
+      return GROUP_NAME_KEYS.some((key) => typeof item[key] === 'string' && item[key].trim());
     };
 
     const toDto = (item) => ({
@@ -374,9 +419,9 @@ function buildPageExtractorScript(scanId) {
     const inspect = (root) => {
       if (!root || typeof root !== 'object') return;
       const queue = [root], seen = new WeakSet();
-      let count = 0;
-      while (queue.length && count++ < MAX_NODES) {
-        const value = queue.shift();
+      let head = 0, count = 0;
+      while (head < queue.length && count++ < MAX_NODES) {
+        const value = queue[head++];
         if (!value || typeof value !== 'object' || seen.has(value)) continue;
         seen.add(value);
         add(value);
@@ -401,25 +446,27 @@ function buildPageExtractorScript(scanId) {
     });
     const callManager = (manager, method) => {
       try {
-        return withTimeout(manager[method]()).then((result) => Array.isArray(result) ? result : (Array.isArray(result && result.data) ? result.data : null));
+        return withTimeout(manager[method]()).then((result) => result);
       } catch { return Promise.resolve(null); }
     };
+    // Thu HET cac method cua tung manager, duyet sau moi ket qua bang inspect()
+    // (hoc theo phia quet nguoi dung). Khong dung giua chung khi found.size > 0:
+    // method dau tien co the chi tra cache mot phan, cac method sau moi du.
     const scanManagers = async () => {
-      let total = 0;
       for (const name of GROUP_MANAGER_NAMES) {
-        if (control.isCancelled()) return total;
+        if (control.isCancelled()) return;
         const manager = window[name];
         if (!manager) continue;
         for (const method of GROUP_LIST_METHODS) {
+          if (control.isCancelled()) return;
           if (typeof manager[method] !== 'function') continue;
-          const list = await callManager(manager, method);
-          if (!Array.isArray(list)) continue;
-          for (const item of list) { if (Array.isArray(item)) for (const inner of item) add(inner); else add(item); }
-          flush();
-          if (found.size) return found.size;
+          try {
+            const list = await callManager(manager, method);
+            if (list) inspect(list);
+          } catch {}
+          emit({ type: 'progress', progress: { pages: 1, discovered, totalUnique: found.size, processed: found.size } });
         }
       }
-      return total;
     };
 
     // --- Duong 2: quet state cua trang ---
@@ -496,6 +543,7 @@ function buildPageExtractorScript(scanId) {
     const cleanup = () => {
       if (timer) { clearTimeout(timer); timer = null; }
       if (scrollTimer) { clearTimeout(scrollTimer); scrollTimer = null; }
+      if (stabilityTimer) { clearTimeout(stabilityTimer); stabilityTimer = null; }
       try { observer && observer.disconnect(); } catch {}
       observer = null;
       for (const restore of restores.reverse()) { try { restore(); } catch {} }
@@ -521,6 +569,26 @@ function buildPageExtractorScript(scanId) {
       emit({ type: 'incompatible', message: String(message) });
     };
 
+    // Timer tong dat ngay tu luc bat dau (khong doi sau khi manager chay xong):
+    // danh sach 2000 nhom du kien, phai cho Zalo nhieu thoi gian tai & keo.
+    timer = setTimeout(() => {
+      if (found.size) complete();
+      else fail('Chưa nhận được danh sách nhóm từ Zalo Web. Hãy mở tab Nhóm trên Zalo rồi bấm Quét lại.');
+    }, 40000);
+    // Chot khi so luong nhom da on dinh qua nhieu chu ky lien tiep: Zalo tai danh
+    // sach ao hoa theo trang, nen phai cho "het them" truocc khi ket luan.
+    const STABILITY_INTERVAL_MS = 2000, STABILITY_REQUIRED = 3;
+    const armStabilityWatch = () => {
+      if (stabilityTimer || finished) return;
+      stabilityTimer = setInterval(() => {
+        if (control.isCancelled() || finished) return;
+        if (found.size === lastStableSize && found.size > 0) stabilityChecks += 1;
+        else { stabilityChecks = 0; lastStableSize = found.size; }
+        emit({ type: 'progress', progress: { pages: 1, discovered, totalUnique: found.size, processed: found.size } });
+        if (found.size > 0 && stabilityChecks >= STABILITY_REQUIRED) complete();
+      }, STABILITY_INTERVAL_MS);
+    };
+
     // Adapter ngoai cho phep ghi de (giu tuong thich cho ban build rieng).
     if (window.__9MetaZaloGroupAdapter && typeof window.__9MetaZaloGroupAdapter.scan === 'function') {
       Promise.resolve(window.__9MetaZaloGroupAdapter.scan({
@@ -535,25 +603,20 @@ function buildPageExtractorScript(scanId) {
       return;
     }
 
-    scanManagers().then((fromManagers) => {
+    scanManagers().then(() => {
       if (control.isCancelled() || finished) return;
-      if (!discoverySent) emit({ type: 'progress', progress: { pages: 1, discovered, totalUnique: found.size, processed: found.size } });
-      if (found.size) { complete(); return; }
-      // Chua co gi: mo tab Nhom de Zalo tu tai danh sach roi doc phan do ve.
+      // Da co it nhom tu manager/state van phai chay tiep phan mo tab + keo danh sach:
+      // truoc day chi can found.size > 0 la complete() ngay, bo sot ~2000 nhom con lai.
       openGroups();
-      setTimeout(openGroups, 1_200);
-      setTimeout(() => document.querySelectorAll('[class*="group" i], [class*="conversation" i], [data-id]').forEach(inspectElement), 2_600);
-      // Keo danh sach de Zalo tai cac trang con lai.
-      let scrolls = 0;
+      setTimeout(openGroups, 1200);
+      setTimeout(() => { if (!finished) { document.querySelectorAll('[class*="group" i], [class*="conversation" i], [data-id]').forEach(inspectElement); armStabilityWatch(); } }, 2600);
+      // Keo danh sach lien tuc: dung khi Zalo het them trang moi — xac dinh bang
+      // so luong on dinh chu khong dung khi scrolls >= 3 nhu truoc.
       scrollTimer = setInterval(() => {
         if (control.isCancelled() || finished) return;
-        if (scrollList()) { scrolls += 1; return; }
-        if (found.size || scrolls >= 3) { clearInterval(scrollTimer); scrollTimer = null; }
+        scrollList();
       }, 900);
-      timer = setTimeout(() => {
-        if (found.size) complete();
-        else fail('Chưa nhận được danh sách nhóm từ Zalo Web. Hãy mở tab Nhóm trên Zalo rồi bấm Quét lại.');
-      }, 15_000);
+      armStabilityWatch();
     });
   })()`;
 }

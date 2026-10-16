@@ -2148,7 +2148,26 @@ function createWindow() {
     if (!view || view.webContents.isDestroyed()) return { ok: false, message: 'Tab Zalo của profile đã đóng.' };
     try {
       const result = await view.webContents.executeJavaScript(buildLeaveGroupScript(id));
-      if (result?.ok) {
+      const raw = result?.raw ? String(result.raw).slice(0, 2000) : '';
+      console.log('[zalo:roi-nhom]', JSON.stringify({
+        groupId: id,
+        ok: !!result?.ok,
+        verified: !!result?.verified,
+        method: result?.method || null,
+        managerName: result?.managerName || null,
+        stillExists: result?.stillExists ?? null,
+        verifyMs: result?.verifyMs ?? null,
+        leaveApiModuleId: result?.leaveApiModuleId ?? null,
+        leaveApiArity: result?.leaveApiArity ?? null,
+        leaveApiSourceHead: result?.leaveApiSourceHead || null,
+        rawType: result?.rawType ?? null,
+        rawKeys: result?.rawKeys ?? null,
+        raw,
+        message: result?.message || null,
+      }));
+      // Chi xoa khoi danh sach + tinh quota khi Zalo xac nhan that (verified).
+      // verified=false/false-thieu: giu lai nhom de anh thu lai, khong ton quota.
+      if (result?.ok && result?.verified) {
         scan.groups.delete(id);
         const dayPrefix = `${usageKey.split(':', 1)[0]}:`;
         settings.leaveDailyUsage = Object.fromEntries(

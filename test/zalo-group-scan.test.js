@@ -64,7 +64,35 @@ test('leave-group script verifies the group is gone instead of trusting an empty
   assert.match(script, /stillExists|getGroupByIdSync/);
   // Khong duoc bao ok mac dinh khi API tra ve rong — phan hoi that phai kem theo.
   assert.match(script, /rawText/);
-  assert.doesNotMatch(script, /return \{ ok: true, method: 'verified-webpack-leave-api' \};\s*\} catch/);
+  assert.doesNotThrow(() => new Function(script));
+});
+
+test('leave-group error extraction fails on any nonzero code at any level', () => {
+  const script = buildLeaveGroupScript('group-123');
+  // Ham trich ma loi dung chung: bat ky ma nao != 0 o cap ngoai hay data deu fail.
+  assert.match(script, /dataObj && dataObj\.error/);
+  assert.match(script, /Chưa xác minh được lệnh rời nhóm/);
+  // Phan biet verified/unverified: chi co verified:true moi duoc xoa + tinh quota.
+  assert.match(script, /verified: true/);
+  assert.match(script, /verified: false/);
+  // Thu thap chan doan: module id, so tham so ham, dau source, kieu + keys cua reply.
+  assert.match(script, /leaveApiModuleId/);
+  assert.match(script, /leaveApiArity/);
+  assert.match(script, /rawKeys/);
+});
+
+test('group scanner filter keeps real groups and manager results are inspected deeply', () => {
+  const script = buildPageExtractorScript('scan-1');
+  // Nhom co truong setting (cai dat nhom) khong duoc bi loai.
+  assert.doesNotMatch(script, /'setting', 'verified'|"setting", "verified"/);
+  // Khong dung giua chung khi thay vai nhom: phai mo tab + keo + cho on dinh.
+  assert.match(script, /armStabilityWatch/);
+  assert.match(script, /STABILITY_REQUIRED/);
+  // Timer tong dat ngay tu dau, du cho danh sach 2000 nhom.
+  assert.match(script, /40000/);
+  // Ket qua manager duoc duyet sau bang inspect(), khong phai add() nong 1 tang.
+  assert.match(script, /const list = await callManager\(manager, method\);\s+if \(list\) inspect\(list\)/);
+  assert.doesNotMatch(script, /if \(found\.size\) \{ complete\(\); return; \}/);
   assert.doesNotThrow(() => new Function(script));
 });
 

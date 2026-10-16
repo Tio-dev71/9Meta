@@ -1,6 +1,6 @@
 {
   "name": "9meta",
-"version": "2.5.60",
+"version": "2.5.60-test",
   "description": "Nhà Yến Zalo - Quản lý nhiều tài khoản, người dùng và nhóm Zalo trên Desktop.",
   "main": "main.js",
   "scripts": {
