@@ -1243,8 +1243,10 @@ function appendZaloGroupActionLog(group, ok, message, extra) {
   const raw = String(extra?.raw ?? group?.raw ?? '').trim().slice(0, 400);
   const detail = [
     extra?.attemptParams || extra?.method ? `goi:${extra.attemptParams || extra.method}` : '',
+    extra?.shapeNotes ? `thu:${String(extra.shapeNotes).slice(0, 80)}` : '',
     extra?.attemptsTried != null ? `so-lan:${extra.attemptsTried}` : '',
     extra?.groupKeys ? `khoa-nhom:${String(extra.groupKeys).slice(0, 120)}` : '',
+    extra?.forcedRefresh ? 'tai-lai:yes' : '',
     extra?.managerName ? `manager:${extra.managerName}` : '',
     extra?.method && extra?.attemptParams ? `method:${extra.method}` : '',
     extra?.verifyMs != null ? `xac-minh:${extra.verifyMs}ms` : '',

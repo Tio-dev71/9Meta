@@ -193,9 +193,13 @@ function buildLeaveGroupScript(groupId) {
       if (!leaveApi) {
         return { ok: false, incompatible: true, message: 'Không tìm thấy API rời nhóm đã xác minh trong phiên Zalo Web.' };
       }
-      // Ham trich ma loi dung chung: duyet ca cap ngoai va data. Zalo boc ma loi
-      // theo 2 dang: so (error_code: 0) hoac object { "0": { error_code: 0, ... } }.
-      // Dang object cu doc nhu 'String(object)' thanh "[object Object]" -> luon fail.
+      // Zalo boc phan hoi nhieu lop: { data: "{\"0\":{\"error_code\":0,...}}" },
+      // { data: { "0": { error_code: 0 } } } hoac { error_code: 0 }. Phai doc
+      // qua het cac lop data/payload/result truoc khi ket luan — chi noi "thanh
+      // cong" khi thay ma 0 that. Sau ma 0 da dung thu them dang goi khac: dang
+      // sau nem loi rieng ("startsWith is not a function") va lam lech ket qua.
+      var CODE_KEYS = ['error_code', 'errorCode', 'code', 'ret', 'error'];
+      var isObject = function(value) { return value && typeof value === 'object' && !Array.isArray(value); };
       var normalizeCode = function(value) {
         if (value === undefined || value === null || value === '') return undefined;
         if (typeof value === 'number') return value;
@@ -206,38 +210,72 @@ function buildLeaveGroupScript(groupId) {
           return Number.isNaN(asNumber) ? trimmed : asNumber;
         }
         if (typeof value === 'object') {
-          var innerKeys = Object.keys(value);
+          var innerKeys = Object.keys(value).slice(0, 8);
           if (!innerKeys.length) return undefined;
           for (var k = 0; k < innerKeys.length; k++) {
             var inner = value[innerKeys[k]];
-            if (inner !== undefined && inner !== null && inner !== '') {
-              if (typeof inner === 'object') {
-                var v = inner.error_code ?? inner.errorCode ?? inner.code ?? inner.error ?? inner.ret;
-                if (v !== undefined && v !== null && String(v) !== '') return v;
-              } else return inner;
-            }
+            if (inner === undefined || inner === null || inner === '') continue;
+            if (typeof inner === 'object') {
+              var v = inner.error_code ?? inner.errorCode ?? inner.code ?? inner.error ?? inner.ret;
+              if (v !== undefined && v !== null && String(v) !== '') return v;
+            } else return inner;
           }
           return undefined;
         }
         return value;
       };
+      var isSuccessCode = function(code) { return code === 0 || code === '0'; };
+      var codeFromObject = function(obj) {
+        for (var ci = 0; ci < CODE_KEYS.length; ci += 1) {
+          var raw = obj[CODE_KEYS[ci]];
+          if (raw === undefined || raw === null) continue;
+          var code = normalizeCode(raw);
+          if (code === undefined && isObject(raw)) {
+            var innerKeys = Object.keys(raw).slice(0, 8);
+            for (var ii = 0; ii < innerKeys.length; ii += 1) {
+              var inner = raw[innerKeys[ii]];
+              var innerCode = isObject(inner) ? normalizeCode(inner.error_code ?? inner.errorCode ?? inner.code ?? inner.error ?? inner.ret) : normalizeCode(inner);
+              if (innerCode !== undefined) { code = innerCode; break; }
+            }
+          }
+          if (code !== undefined) return code;
+        }
+        return undefined;
+      };
       var readReply = function(value) {
         var code, msg;
-        try {
-          if (value && typeof value === 'object') {
-            var dataObj = value.data && typeof value.data === 'object' ? value.data : null;
-            var cands = [value.error, value.error_code, value.errorCode, value.code, value.ret,
-              dataObj && dataObj.error, dataObj && dataObj.error_code, dataObj && dataObj.errorCode, dataObj && dataObj.code];
-            for (var c = 0; c < cands.length; c++) {
-              var normalized = normalizeCode(cands[c]);
-              if (normalized !== undefined) { code = normalized; break; }
+        var levels = [value];
+        for (var depth = 0; depth < 4 && levels.length; depth += 1) {
+          var next = [];
+          for (var li = 0; li < levels.length; li += 1) {
+            var item = levels[li];
+            if (typeof item === 'string') {
+              var parsed;
+              try { parsed = JSON.parse(item); } catch { continue; }
+              if (parsed !== null && typeof parsed === 'object') next.push(parsed);
+              continue;
             }
-            msg = value.message || value.msg || value.error_message || (dataObj && (dataObj.message || dataObj.msg)) || '';
+            if (!isObject(item)) continue;
+            var c = codeFromObject(item);
+            if (c !== undefined && code === undefined) code = c;
+            if (!msg) msg = item.error_message || item.message || item.msg || '';
+            // Chi mo them qua data/payload/result; cac key khac (config, headers)
+            // khong phai noi dung phan hoi nen khong duyet chung.
+            if (item.data !== undefined && item.data !== null) next.push(item.data);
+            if (isObject(item.payload)) next.push(item.payload);
+            if (isObject(item.result)) next.push(item.result);
           }
-        } catch {}
-        return { code: code, msg: msg };
+          levels = next;
+        }
+        return { code: code, msg: typeof msg === 'string' ? msg.slice(0, 300) : '' };
       };
-      var rawResult = null, rawResult2 = null, attemptUsed = -1, attemptParams = '', attemptsTried = 0;
+      var stringifyRaw = function(value, limit) {
+        var text;
+        try { text = JSON.stringify(value); } catch { text = undefined; }
+        if (text === undefined || text === '[object Object]') text = String(value);
+        return (text || '').slice(0, limit);
+      };
+      var rawResult = null, rawResult2 = null, attemptUsed = -1, attemptParams = '', attemptsTried = 0, hasSuccessReply = false, shapeNotes = '';
       var leaveApiSourceHead = '', leaveApiArity = -1;
       try { leaveApiArity = leaveApi.leaveGroup.length; } catch {}
       try { leaveApiSourceHead = Function.prototype.toString.call(leaveApi.leaveGroup).slice(0, 300); } catch {}
@@ -278,6 +316,19 @@ function buildLeaveGroupScript(groupId) {
         if (one && typeof one.then === 'function') return undefined;
         return one || null;
       };
+      // Zalo bao xong nhung cache trong app chua dong bo: dam bao Zalo keo lai
+      // danh sach tu server truoc khi ket luan nhom da mat.
+      var forcedRefresh = false;
+      var forceRefreshList = async function() {
+        if (!manager || forcedRefresh) return;
+        var refreshMethods = ['forceRequestGetGroupList', 'fetchGetGroupList'];
+        for (var ri = 0; ri < refreshMethods.length; ri += 1) {
+          if (typeof manager[refreshMethods[ri]] !== 'function') continue;
+          try { await Promise.race([manager[refreshMethods[ri]](), new Promise(function(resolve) { setTimeout(resolve, 8000); })]); forcedRefresh = true; } catch {}
+          await new Promise(function(resolve) { setTimeout(resolve, 1500); });
+          return;
+        }
+      };
       var withTimeoutCall = (fn) => Promise.race([fn(), new Promise(function(_, reject) { setTimeout(function() { reject(new Error('Zalo không phản hồi lệnh rời nhóm (quá 20 giây).')); }, 20000); })]);
       var callError = null, callErrorShapes = '';
       for (var attempt = 0; attempt < paramShapes.length; attempt += 1) {
@@ -289,40 +340,45 @@ function buildLeaveGroupScript(groupId) {
           var callResult = await withTimeoutCall(function() { return leaveApi.leaveGroup.apply(leaveApi, shapeArgs); });
           if (attempt === 0) rawResult = callResult; else rawResult2 = callResult;
           var shapeReply = readReply(callResult);
-          if (shapeReply.code !== undefined && String(shapeReply.code) !== '0') {
+          if (isSuccessCode(shapeReply.code)) {
+            attemptUsed = attempt; attemptParams = shape.desc; callError = null; hasSuccessReply = true;
+            shapeNotes = (shapeNotes ? shapeNotes + ',' : '') + shape.desc + ':0';
+            break;
+          }
+          if (shapeReply.code !== undefined) {
             callError = { message: String(shapeReply.msg || ('Zalo báo lỗi rời nhóm: ' + String(shapeReply.code))), code: shapeReply.code };
+            shapeNotes += (shapeNotes ? ',' : '') + shape.desc + ':' + String(shapeReply.code);
             callErrorShapes += (callErrorShapes ? ',' : '') + shape.desc;
             continue;
           }
           attemptUsed = attempt; attemptParams = shape.desc; callError = null;
         } catch (error) {
-          callError = { message: error && error.message ? error.message : String(error), code: 'throw' };
+          var errText = error && error.message ? error.message : String(error);
+          shapeNotes += (shapeNotes ? ',' : '') + shape.desc + ':throw';
+          callError = { message: errText, code: 'throw' };
           callErrorShapes += (callErrorShapes ? ',' : '') + shape.desc;
           continue;
         }
-        // Zalo da nhan lenh (thuong tra "Successful!"): cho cache cap nhat roi kiem
-        // trai nhau; chi thu dang tham so tiep theo khi nhom van con.
+        // Khong co ma loi nao trong phan hoi: cho cache cap nhat roi kiem tra;
+        // chi thu dang tham so tiep theo khi nhom van con sau khi cho nghi.
         for (var settle = 0; settle < 3; settle += 1) {
           await new Promise(function(resolve) { setTimeout(resolve, 1000); });
-          if (readGroupNow() === null) break;
+          if (readGroupNow() === null) { hasSuccessReply = true; break; }
         }
         if (readGroupNow() === null) break;
       }
-      if (callError) {
-        var failedText = '';
-        try { failedText = JSON.stringify(rawResult2 !== null && rawResult2 !== undefined ? rawResult2 : rawResult) || ''; } catch { failedText = String(rawResult2 !== null && rawResult2 !== undefined ? rawResult2 : rawResult); }
-        if (failedText.length > 2000) failedText = failedText.slice(0, 2000);
-        return { ok: false, message: callError.message, attemptParams: attemptParams || ('fail:' + callErrorShapes), attemptsTried: attemptsTried, groupKeys: groupKeys, memberId: memberId ? 'yes' : 'no', raw: failedText, rawType: typeof rawResult, leaveApiModuleId: leaveApiModuleId, leaveApiArity: leaveApiArity, leaveApiSourceHead: leaveApiSourceHead };
+      if (callError && !hasSuccessReply) {
+        var failedText = stringifyRaw(rawResult2 !== null && rawResult2 !== undefined ? rawResult2 : rawResult, 2000);
+        return { ok: false, message: callError.message, attemptParams: attemptParams || ('fail:' + (shapeNotes || callErrorShapes)), attemptsTried: attemptsTried, shapeNotes: shapeNotes, groupKeys: groupKeys, memberId: memberId ? 'yes' : 'no', raw: failedText, rawType: typeof rawResult, leaveApiModuleId: leaveApiModuleId, leaveApiArity: leaveApiArity, leaveApiSourceHead: leaveApiSourceHead };
       }
-      var rawText = '';
+      var rawText = stringifyRaw(rawResult, 2000);
       var rawType = typeof rawResult;
       var rawKeys = '';
-      try { rawText = JSON.stringify(rawResult); if (rawText && rawText.length > 2000) rawText = rawText.slice(0, 2000); } catch { rawText = String(rawResult); if (rawText.length > 2000) rawText = rawText.slice(0, 2000); }
       try { if (rawResult && typeof rawResult === 'object') rawKeys = Object.keys(rawResult).slice(0, 20).join(','); } catch {}
-      try { if (rawResult2 !== null && rawResult2 !== undefined) { rawText += ' | ' + JSON.stringify(rawResult2); if (rawText.length > 3000) rawText = rawText.slice(0, 3000); } } catch {}
+      try { if (rawResult2 !== null && rawResult2 !== undefined) { rawText += ' | ' + stringifyRaw(rawResult2, 800); if (rawText.length > 3000) rawText = rawText.slice(0, 3000); } } catch {}
       var errCode = readReply(rawResult).code, errMsg = readReply(rawResult).msg;
-      if (errCode !== undefined && String(errCode) !== '0' && errCode !== 0) {
-        return { ok: false, message: String(errMsg || rawResult.error || rawResult.error_code || rawResult.errorCode || ('Zalo báo lỗi rời nhóm: ' + String(errCode))), raw: rawText, rawType: rawType, rawKeys: rawKeys, leaveApiModuleId: leaveApiModuleId, leaveApiArity: leaveApiArity, leaveApiSourceHead: leaveApiSourceHead };
+      if (errCode !== undefined && !isSuccessCode(errCode) && !hasSuccessReply) {
+        return { ok: false, message: String(errMsg || ('Zalo báo lỗi rời nhóm: ' + String(errCode))), attemptParams: attemptParams || shapeNotes, attemptsTried: attemptsTried, shapeNotes: shapeNotes, groupKeys: groupKeys, raw: rawText, rawType: rawType, rawKeys: rawKeys, leaveApiModuleId: leaveApiModuleId, leaveApiArity: leaveApiArity, leaveApiSourceHead: leaveApiSourceHead };
       }
       var isEmptyReply = rawResult === null || rawResult === undefined || rawResult === true
         || (typeof rawResult === 'string' && !rawResult.trim())
@@ -332,11 +388,14 @@ function buildLeaveGroupScript(groupId) {
       var managerName = null;
       for (var mn = 0; mn < managerNames.length; mn++) if (window[managerNames[mn]] === manager) { managerName = managerNames[mn]; break; }
       var verified = false, stillExists = null, verifyTimedOut = false, verifyErrored = false, verifyMs = 0;
+      // Khi Zalo da tra ma 0 nhung nhom van con trong cache: cache phia app co the
+      // chua dong bo. Buoc Zalo keo lai danh sach truoc khi ket luan that bai.
+      var forcedRefreshUsed = false;
       if (manager) {
         var verifyStart = Date.now();
         var checks = 0;
         var passedMissing = 0;
-        while (checks < 2) {
+        while (checks < 3) {
           await new Promise(function(resolve) { setTimeout(resolve, checks === 0 ? 1500 : 3000); });
           var one = null, oneErr = false, oneTO = false;
           try {
@@ -347,6 +406,11 @@ function buildLeaveGroupScript(groupId) {
               try { one = await Promise.race([one, new Promise(function(resolve) { setTimeout(function() { oneTO = true; resolve(null); }, 4000); })]); if (oneTO) verifyTimedOut = true; } catch { one = null; oneErr = true; verifyErrored = true; }
             }
           } catch { one = null; oneErr = true; verifyErrored = true; }
+          if (one && hasSuccessReply && !forcedRefreshUsed) {
+            forcedRefreshUsed = true;
+            await forceRefreshList();
+            if (forcedRefresh) { checks += 1; continue; }
+          }
           stillExists = one;
           checks += 1;
           if (!one && !oneErr && !oneTO) passedMissing += 1;
@@ -355,26 +419,28 @@ function buildLeaveGroupScript(groupId) {
         }
         verifyMs = Date.now() - verifyStart;
         verified = (passedMissing >= 2);
+        var diag = { attemptParams: attemptParams, attemptsTried: attemptsTried, shapeNotes: shapeNotes, groupKeys: groupKeys, memberId: memberId ? 'yes' : 'no', forcedRefresh: forcedRefresh };
         if (stillExists) {
           var hint = rawText ? (' Phản hồi Zalo: ' + rawText) : '';
-          return { ok: false, verified: false, stillExists: true, managerName: managerName, raw: rawText, rawType: rawType, rawKeys: rawKeys, verifyMs: verifyMs, leaveApiArity: leaveApiArity, leaveApiSourceHead: leaveApiSourceHead, message: 'Zalo chưa rời nhóm (nhóm vẫn còn trong phiên hiện tại).' + hint };
+          return Object.assign({ ok: false, verified: false, stillExists: true, managerName: managerName, raw: rawText, rawType: rawType, rawKeys: rawKeys, verifyMs: verifyMs, leaveApiArity: leaveApiArity, leaveApiSourceHead: leaveApiSourceHead, message: 'Zalo chưa rời nhóm (nhóm vẫn còn trong phiên hiện tại).' + hint }, diag);
         }
         if (!verified) {
-          // Khong xac minh duoc (loi/timeout hoac chi 1 lan missing) — neu reply trong thi khong du co so bao ok.
-          if (isEmptyReply) {
-            return { ok: false, verified: false, stillExists: null, managerName: managerName, raw: rawText, rawType: rawType, rawKeys: rawKeys, verifyMs: verifyMs, leaveApiArity: leaveApiArity, leaveApiSourceHead: leaveApiSourceHead, message: 'Chưa xác minh được lệnh rời nhóm (không đọc được trạng thái nhóm sau khi rời). Phản hồi Zalo: ' + (rawText || String(rawResult)) };
+          // Khong xac minh duoc (loi/timeout hoac chi doc duoc 1 lan missing) — neu
+          // reply trong thi khong du co so bao ok.
+          if (isEmptyReply || !hasSuccessReply) {
+            return Object.assign({ ok: false, verified: false, stillExists: null, managerName: managerName, raw: rawText, rawType: rawType, rawKeys: rawKeys, verifyMs: verifyMs, leaveApiArity: leaveApiArity, leaveApiSourceHead: leaveApiSourceHead, message: 'Chưa xác minh được lệnh rời nhóm (không đọc được trạng thái nhóm sau khi rời). Phản hồi Zalo: ' + (rawText || String(rawResult)) }, diag);
           }
-          // Reply co ma 0 nhung khong xac minh duoc qua manager — bao ok nhung ghi la unverified + kèm raw de chan doan.
-          return { ok: true, verified: false, managerName: managerName, raw: rawText, rawType: rawType, rawKeys: rawKeys, verifyMs: verifyMs, leaveApiArity: leaveApiArity, leaveApiSourceHead: leaveApiSourceHead, method: 'verified-webpack-leave-api-unverified' };
+          // Zalo xac nhan ma 0 nhung chi doc duoc trang thai 1 lan — bao ok, giu
+          // danh sach + quota cho nghi, kem raw de chan doan.
+          return Object.assign({ ok: true, verified: false, managerName: managerName, raw: rawText, rawType: rawType, rawKeys: rawKeys, verifyMs: verifyMs, leaveApiArity: leaveApiArity, leaveApiSourceHead: leaveApiSourceHead, method: 'verified-webpack-leave-api-unverified' }, diag);
         }
-      } else {
-        // Khong co manager de xac minh -> yeu cau phai co ma thanh cong ro rang.
-        if (errCode === undefined || String(errCode) !== '0') {
-          return { ok: false, verified: false, stillExists: null, raw: rawText, rawType: rawType, rawKeys: rawKeys, leaveApiArity: leaveApiArity, leaveApiSourceHead: leaveApiSourceHead, message: isEmptyReply ? ('Chưa xác minh được lệnh rời nhóm. Phản hồi Zalo: ' + (rawText || String(rawResult))) : ('Chưa xác minh được lệnh rời nhóm. Phản hồi Zalo: ' + rawText) };
-        }
-        verified = true;
+        return Object.assign({ ok: true, verified: true, managerName: managerName, raw: rawText, rawType: rawType, rawKeys: rawKeys, verifyMs: verifyMs, leaveApiArity: leaveApiArity, leaveApiSourceHead: leaveApiSourceHead, method: 'verified-webpack-leave-api' }, diag);
       }
-      return { ok: true, verified: true, managerName: managerName, raw: rawText, rawType: rawType, rawKeys: rawKeys, verifyMs: verifyMs, leaveApiArity: leaveApiArity, leaveApiSourceHead: leaveApiSourceHead, method: 'verified-webpack-leave-api' };
+      // Khong co manager de xac minh -> chi chap nhan khi Zalo tra ma 0 that.
+      if (!hasSuccessReply || errCode === undefined || !isSuccessCode(errCode)) {
+        return { ok: false, verified: false, stillExists: null, attemptParams: attemptParams || shapeNotes, attemptsTried: attemptsTried, shapeNotes: shapeNotes, groupKeys: groupKeys, raw: rawText, rawType: rawType, rawKeys: rawKeys, leaveApiArity: leaveApiArity, leaveApiSourceHead: leaveApiSourceHead, message: isEmptyReply ? ('Chưa xác minh được lệnh rời nhóm. Phản hồi Zalo: ' + (rawText || String(rawResult))) : ('Chưa xác minh được lệnh rời nhóm. Phản hồi Zalo: ' + rawText) };
+      }
+      return { ok: true, verified: true, managerName: managerName, attemptParams: attemptParams, attemptsTried: attemptsTried, shapeNotes: shapeNotes, groupKeys: groupKeys, raw: rawText, rawType: rawType, rawKeys: rawKeys, verifyMs: verifyMs, leaveApiArity: leaveApiArity, leaveApiSourceHead: leaveApiSourceHead, method: 'verified-webpack-leave-api' };
     } catch (error) {
       return { ok: false, message: error && error.message ? error.message : String(error) };
     }

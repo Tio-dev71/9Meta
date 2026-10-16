@@ -75,15 +75,20 @@ test('leave-group thu nhieu dang tham so va chi ket luan khi nhom bien mat khoi 
   assert.match(script, /groupId\+memberId/);
   assert.match(script, /readGroupNow\(\) === null/);
   assert.match(script, /memberId = safeId\(group\.memberId\)/);
-  // Khong dung 'Zalo bao thanh cong' tu phia Zalo lam dieu kien duy nhat.
-  assert.doesNotMatch(script, /error_message: "Successful!"/);
+  // Da co ma 0 that thi dung thu them dang goi khac (dang sau nem loi rieng).
+  assert.match(script, /isSuccessCode\(shapeReply\.code\)[\s\S]*break;/);
+  // Cache Zalo chua dong bo -> phai force keo lai danh sach truoc khi ket luan.
+  assert.match(script, /forceRequestGetGroupList/);
+  assert.match(script, /forcedRefresh/);
   assert.doesNotThrow(() => new Function(script));
 });
 
 test('leave-group error extraction fails on any nonzero code at any level', () => {
   const script = buildLeaveGroupScript('group-123');
-  // Ham trich ma loi dung chung: bat ky ma nao != 0 o cap ngoai hay data deu fail.
-  assert.match(script, /dataObj && dataObj\.error/);
+  // Ham trich ma loi dung chung: duyet nhieu lop {data: "{...}"}, "{0:{...}}".
+  assert.match(script, /CODE_KEYS/);
+  assert.match(script, /isSuccessCode/);
+  assert.match(script, /stringifyRaw/);
   assert.match(script, /Chưa xác minh được lệnh rời nhóm/);
   // Phan biet verified/unverified: chi co verified:true moi duoc xoa + tinh quota.
   assert.match(script, /verified: true/);
