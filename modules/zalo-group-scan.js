@@ -193,33 +193,134 @@ function buildLeaveGroupScript(groupId) {
       if (!leaveApi) {
         return { ok: false, incompatible: true, message: 'Không tìm thấy API rời nhóm đã xác minh trong phiên Zalo Web.' };
       }
-      var rawResult = null;
+      // Ham trich ma loi dung chung: duyet ca cap ngoai va data. Zalo boc ma loi
+      // theo 2 dang: so (error_code: 0) hoac object { "0": { error_code: 0, ... } }.
+      // Dang object cu doc nhu 'String(object)' thanh "[object Object]" -> luon fail.
+      var normalizeCode = function(value) {
+        if (value === undefined || value === null || value === '') return undefined;
+        if (typeof value === 'number') return value;
+        if (typeof value === 'string') {
+          var trimmed = value.trim();
+          if (!trimmed || trimmed === '[object Object]') return undefined;
+          var asNumber = Number(trimmed);
+          return Number.isNaN(asNumber) ? trimmed : asNumber;
+        }
+        if (typeof value === 'object') {
+          var innerKeys = Object.keys(value);
+          if (!innerKeys.length) return undefined;
+          for (var k = 0; k < innerKeys.length; k++) {
+            var inner = value[innerKeys[k]];
+            if (inner !== undefined && inner !== null && inner !== '') {
+              if (typeof inner === 'object') {
+                var v = inner.error_code ?? inner.errorCode ?? inner.code ?? inner.error ?? inner.ret;
+                if (v !== undefined && v !== null && String(v) !== '') return v;
+              } else return inner;
+            }
+          }
+          return undefined;
+        }
+        return value;
+      };
+      var readReply = function(value) {
+        var code, msg;
+        try {
+          if (value && typeof value === 'object') {
+            var dataObj = value.data && typeof value.data === 'object' ? value.data : null;
+            var cands = [value.error, value.error_code, value.errorCode, value.code, value.ret,
+              dataObj && dataObj.error, dataObj && dataObj.error_code, dataObj && dataObj.errorCode, dataObj && dataObj.code];
+            for (var c = 0; c < cands.length; c++) {
+              var normalized = normalizeCode(cands[c]);
+              if (normalized !== undefined) { code = normalized; break; }
+            }
+            msg = value.message || value.msg || value.error_message || (dataObj && (dataObj.message || dataObj.msg)) || '';
+          }
+        } catch {}
+        return { code: code, msg: msg };
+      };
+      var rawResult = null, rawResult2 = null, attemptUsed = -1, attemptParams = '', attemptsTried = 0;
       var leaveApiSourceHead = '', leaveApiArity = -1;
-      try {
-        rawResult = await Promise.race([leaveApi.leaveGroup(groupId), new Promise(function(_, reject) { setTimeout(function() { reject(new Error('Zalo không phản hồi lệnh rời nhóm (quá 20 giây).')); }, 20000); })]);
-      } catch (callError) {
-        return { ok: false, message: callError && callError.message ? callError.message : String(callError) };
+      try { leaveApiArity = leaveApi.leaveGroup.length; } catch {}
+      try { leaveApiSourceHead = Function.prototype.toString.call(leaveApi.leaveGroup).slice(0, 300); } catch {}
+      // Zalo tra "Successful!" ca khi goi sai tham so (thieu memberId cua chinh
+      // minh trong nhom) nen chi mot dau khong du de ket luan. Cac dang goi duoc
+      // thu lan luot cho den khi nhom bien mat khoi cache cua Zalo:
+      //   0: leaveGroup(groupId)
+      //   1: leaveGroup({ groupId: groupId })
+      //   2: leaveGroup(groupId, memberId) — memberId lay tu chinh object nhom
+      // Tham so nao that bai se ghi vao log de lan sau sua dung nhanh.
+      var groupKeys = '';
+      try { if (group && typeof group === 'object') groupKeys = Object.keys(group).slice(0, 40).join(','); } catch {}
+      var memberId = '';
+      var safeId = function(value) {
+        if (value === undefined || value === null) return '';
+        if (typeof value === 'object' || typeof value === 'function') return '';
+        return String(value).replace(/\s+/g, ' ').trim().slice(0, 128);
+      };
+      if (group && typeof group === 'object') {
+        memberId = safeId(group.memberId) || safeId(group.member_id) || safeId(group.userIdInGroup)
+          || safeId(group.userId) || safeId(group.myMemberId) || safeId(group.memberID) || '';
+      }
+      var paramShapes = [
+        { desc: 'groupId', args: [groupId] },
+        { desc: 'object{groupId}', args: [{ groupId: groupId }] },
+        { desc: 'groupId+memberId', args: memberId ? [groupId, memberId] : null },
+      ];
+      // Doc trang thái nhom tu cache Zalo: null = doc duoc va khong con; undefined
+      // = khong doc duoc (loi/timeout) — hai truong hop nay khac nhau.
+      var readGroupNow = function() {
+        if (!manager) return undefined;
+        var one = null;
+        try {
+          one = typeof manager.getGroupByIdSync === 'function'
+            ? manager.getGroupByIdSync(groupId)
+            : (typeof manager.getGroupById === 'function' ? manager.getGroupById(groupId) : null);
+        } catch { return undefined; }
+        if (one && typeof one.then === 'function') return undefined;
+        return one || null;
+      };
+      var withTimeoutCall = (fn) => Promise.race([fn(), new Promise(function(_, reject) { setTimeout(function() { reject(new Error('Zalo không phản hồi lệnh rời nhóm (quá 20 giây).')); }, 20000); })]);
+      var callError = null, callErrorShapes = '';
+      for (var attempt = 0; attempt < paramShapes.length; attempt += 1) {
+        var shape = paramShapes[attempt];
+        if (!shape.args) continue;
+        attemptsTried += 1;
+        var shapeArgs = shape.args;
+        try {
+          var callResult = await withTimeoutCall(function() { return leaveApi.leaveGroup.apply(leaveApi, shapeArgs); });
+          if (attempt === 0) rawResult = callResult; else rawResult2 = callResult;
+          var shapeReply = readReply(callResult);
+          if (shapeReply.code !== undefined && String(shapeReply.code) !== '0') {
+            callError = { message: String(shapeReply.msg || ('Zalo báo lỗi rời nhóm: ' + String(shapeReply.code))), code: shapeReply.code };
+            callErrorShapes += (callErrorShapes ? ',' : '') + shape.desc;
+            continue;
+          }
+          attemptUsed = attempt; attemptParams = shape.desc; callError = null;
+        } catch (error) {
+          callError = { message: error && error.message ? error.message : String(error), code: 'throw' };
+          callErrorShapes += (callErrorShapes ? ',' : '') + shape.desc;
+          continue;
+        }
+        // Zalo da nhan lenh (thuong tra "Successful!"): cho cache cap nhat roi kiem
+        // trai nhau; chi thu dang tham so tiep theo khi nhom van con.
+        for (var settle = 0; settle < 3; settle += 1) {
+          await new Promise(function(resolve) { setTimeout(resolve, 1000); });
+          if (readGroupNow() === null) break;
+        }
+        if (readGroupNow() === null) break;
+      }
+      if (callError) {
+        var failedText = '';
+        try { failedText = JSON.stringify(rawResult2 !== null && rawResult2 !== undefined ? rawResult2 : rawResult) || ''; } catch { failedText = String(rawResult2 !== null && rawResult2 !== undefined ? rawResult2 : rawResult); }
+        if (failedText.length > 2000) failedText = failedText.slice(0, 2000);
+        return { ok: false, message: callError.message, attemptParams: attemptParams || ('fail:' + callErrorShapes), attemptsTried: attemptsTried, groupKeys: groupKeys, memberId: memberId ? 'yes' : 'no', raw: failedText, rawType: typeof rawResult, leaveApiModuleId: leaveApiModuleId, leaveApiArity: leaveApiArity, leaveApiSourceHead: leaveApiSourceHead };
       }
       var rawText = '';
       var rawType = typeof rawResult;
       var rawKeys = '';
       try { rawText = JSON.stringify(rawResult); if (rawText && rawText.length > 2000) rawText = rawText.slice(0, 2000); } catch { rawText = String(rawResult); if (rawText.length > 2000) rawText = rawText.slice(0, 2000); }
       try { if (rawResult && typeof rawResult === 'object') rawKeys = Object.keys(rawResult).slice(0, 20).join(','); } catch {}
-      try { leaveApiArity = leaveApi.leaveGroup.length; } catch {}
-      try { leaveApiSourceHead = Function.prototype.toString.call(leaveApi.leaveGroup).slice(0, 300); } catch {}
-      // Ham trich ma loi dung chung: duyet ca cap ngoai va data, bat ky ma nao != 0 deu fail.
-      var errCode = undefined, errMsg = undefined;
-      try {
-        if (rawResult && typeof rawResult === 'object') {
-          var dataObj = rawResult.data && typeof rawResult.data === 'object' ? rawResult.data : null;
-          var cands = [
-            rawResult.error, rawResult.error_code, rawResult.errorCode, rawResult.code, rawResult.ret,
-            dataObj && dataObj.error, dataObj && dataObj.error_code, dataObj && dataObj.errorCode, dataObj && dataObj.code
-          ];
-          for (var c = 0; c < cands.length; c++) if (cands[c] !== undefined && cands[c] !== null && String(cands[c]) !== '') { errCode = cands[c]; break; }
-          errMsg = rawResult.message || rawResult.msg || (dataObj && (dataObj.message || dataObj.msg)) || '';
-        }
-      } catch {}
+      try { if (rawResult2 !== null && rawResult2 !== undefined) { rawText += ' | ' + JSON.stringify(rawResult2); if (rawText.length > 3000) rawText = rawText.slice(0, 3000); } } catch {}
+      var errCode = readReply(rawResult).code, errMsg = readReply(rawResult).msg;
       if (errCode !== undefined && String(errCode) !== '0' && errCode !== 0) {
         return { ok: false, message: String(errMsg || rawResult.error || rawResult.error_code || rawResult.errorCode || ('Zalo báo lỗi rời nhóm: ' + String(errCode))), raw: rawText, rawType: rawType, rawKeys: rawKeys, leaveApiModuleId: leaveApiModuleId, leaveApiArity: leaveApiArity, leaveApiSourceHead: leaveApiSourceHead };
       }
@@ -335,29 +436,27 @@ function buildPageExtractorScript(scanId) {
       .trim()
       .slice(0, max);
 
-    // "Hinh dang nhom": khong phai object danh ba (user) va co it nhat mot dau hieu
-    // danh danh nhom. Chi lay ID de so sanh, khong khop digits de tranh loai.
+    // "Hinh dang nhom": bat buoc co groupId/globalId + it nhat mot dau hieu nhom.
+    // Bai hoc v2.5.60-test: nhan muc gon {groupId + ten} ma khong can dau hieu
+    // nhom -> tin nhan/file/link-preview (cung chua groupId cua hoi thoai + ten
+    // hien thi) bi tinh la nhom, phong tu 2000 that len 11473 rac.
     // 'setting'/'verified' KHONG duoc dung de loai: object nhom Zalo that thuong
     // co truong setting (cai dat nhom), dung chung la loai gan het nhom that.
     const GROUP_MARKERS = ['totalMember', 'total_member', 'memberCount', 'memberIds', 'members', 'adminIds', 'creatorId', 'createdTime', 'groupName', 'groupAvatar'];
     const USER_MARKERS = ['zaloName', 'phoneNumber', 'isFriend', 'friendStatus'];
-    const GROUP_NAME_KEYS = ['displayName', 'groupName', 'name', 'title', 'alias', 'currentName'];
+    // Dau hieu cua tin nhan / file / link-preview: nhom that khong co cac key nay.
+    const MESSAGE_MARKERS = ['messageId', 'msgId', 'cliMsgId', 'fileId', 'fileName', 'senderId', 'content', 'msgContent'];
     const looksLikeGroup = (item) => {
       if (!item || typeof item !== 'object' || Array.isArray(item)) return false;
-      const id = item.groupId ?? item.globalId ?? item.conversationId ?? item.chatId ?? item.userId ?? item.id;
-      if (!id || typeof id === 'object' || !String(id).trim()) return false;
-      const hasGroupId = !!(item.groupId ?? item.globalId);
-      const hasGroupShape = GROUP_MARKERS.some((key) => key in item) || (Array.isArray(item.members));
-      if (hasGroupShape) {
-        // Co dang nhom: chi loai khi la object danh ba ro rang (co dau user ma
-        // khong co id nhom nao). 'setting'/'verified' khong phai dau hieu user.
-        if (!hasGroupId && !item.conversationId) return false;
-        return !USER_MARKERS.some((key) => key in item);
-      }
-      // Muc danh sach gon {groupId, displayName}: nhan khi co groupId/globalId + ten.
-      // conversationId don thuan (hoi thoai 1-1) van can dang nhom moi nhan.
-      if (!hasGroupId) return false;
-      return GROUP_NAME_KEYS.some((key) => typeof item[key] === 'string' && item[key].trim());
+      // Chi nhan id nhom that. Khong nhan conversationId/chatId/userId/id:
+      // id hoi thoai 1-1 hoac id tin nhan khong phai nhom.
+      const groupId = item.groupId ?? item.globalId;
+      if (!groupId || typeof groupId === 'object' || !String(groupId).trim()) return false;
+      if (USER_MARKERS.some((key) => key in item)) return false;
+      if (MESSAGE_MARKERS.some((key) => key in item)) return false;
+      // Bat buoc co dau hieu nhom: so luong / danh sach thanh vien / admin /
+      // nguoi tao / thoi gian tao / ten truong rieng cua nhom.
+      return GROUP_MARKERS.some((key) => key in item) || Array.isArray(item.members);
     };
 
     const toDto = (item) => ({

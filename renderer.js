@@ -1242,8 +1242,11 @@ function appendZaloGroupActionLog(group, ok, message, extra) {
   row.className = 'list-item';
   const raw = String(extra?.raw ?? group?.raw ?? '').trim().slice(0, 400);
   const detail = [
+    extra?.attemptParams || extra?.method ? `goi:${extra.attemptParams || extra.method}` : '',
+    extra?.attemptsTried != null ? `so-lan:${extra.attemptsTried}` : '',
+    extra?.groupKeys ? `khoa-nhom:${String(extra.groupKeys).slice(0, 120)}` : '',
     extra?.managerName ? `manager:${extra.managerName}` : '',
-    extra?.method ? `method:${extra.method}` : '',
+    extra?.method && extra?.attemptParams ? `method:${extra.method}` : '',
     extra?.verifyMs != null ? `xac-minh:${extra.verifyMs}ms` : '',
     extra?.stillExists != null ? (extra.stillExists ? 'van-con' : 'da-mat') : '',
     extra?.verified != null ? (extra.verified ? 'da-xac-minh' : 'chua-xac-minh') : '',

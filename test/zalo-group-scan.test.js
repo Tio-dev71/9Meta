@@ -67,6 +67,19 @@ test('leave-group script verifies the group is gone instead of trusting an empty
   assert.doesNotThrow(() => new Function(script));
 });
 
+test('leave-group thu nhieu dang tham so va chi ket luan khi nhom bien mat khoi cache Zalo', () => {
+  const script = buildLeaveGroupScript('group-123');
+  // Zalo tra "Successful!" ca khi goi thieu tham so -> phai thu ca ba dang goi
+  // va chi dung lai khi cache Zalo bao nhom da bien mat.
+  assert.match(script, /object\{groupId\}/);
+  assert.match(script, /groupId\+memberId/);
+  assert.match(script, /readGroupNow\(\) === null/);
+  assert.match(script, /memberId = safeId\(group\.memberId\)/);
+  // Khong dung 'Zalo bao thanh cong' tu phia Zalo lam dieu kien duy nhat.
+  assert.doesNotMatch(script, /error_message: "Successful!"/);
+  assert.doesNotThrow(() => new Function(script));
+});
+
 test('leave-group error extraction fails on any nonzero code at any level', () => {
   const script = buildLeaveGroupScript('group-123');
   // Ham trich ma loi dung chung: bat ky ma nao != 0 o cap ngoai hay data deu fail.
