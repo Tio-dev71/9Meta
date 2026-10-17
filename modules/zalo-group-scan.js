@@ -196,22 +196,37 @@ function buildLeaveGroupScript(groupId) {
             var mc = mCands[mi];
             if (!mc || (typeof mc !== 'object' && typeof mc !== 'function')) continue;
             try {
-              if (typeof mc.getGroupByIdSync === 'function') { manager = mc; managerName = 'webpack:' + String(mId); break; }
+              if (typeof mc.getGroupByIdSync === 'function' && (typeof mc.getGroupsList === 'function' || typeof mc.forceRequestGetGroupList === 'function' || typeof mc.fetchGetGroupList === 'function')) { manager = mc; managerName = 'webpack:' + String(mId); break; }
             } catch {}
           }
           if (manager) break;
         }
       }
       var group = null;
+      var readById = function(id) {
+        var value = typeof manager.getGroupByIdSync === 'function'
+          ? manager.getGroupByIdSync(id)
+          : (typeof manager.getGroupById === 'function' ? manager.getGroupById(id) : null);
+        return value;
+      };
       try {
         if (manager) {
-          group = typeof manager.getGroupByIdSync === 'function'
-            ? manager.getGroupByIdSync(groupId)
-            : (typeof manager.getGroupById === 'function' ? manager.getGroupById(groupId) : null);
+          group = readById(groupId);
           if (group && typeof group.then === 'function') { try { group = await Promise.race([group, new Promise(function(resolve) { setTimeout(function() { resolve(null); }, 5000); })]); } catch { group = null; } }
+          // Danh sach quet cu co the luu groupId tran; Zalo noi bo dung userId dang
+          // "g" + so. Thu dang do roi dung dung ma Zalo de goi leaveGroup.
+          if (!group) {
+            var altIds = /^g/.test(groupId) ? [groupId.slice(1)] : ['g' + groupId];
+            for (var ai = 0; ai < altIds.length && !group; ai += 1) {
+              var alt = null;
+              try { alt = readById(altIds[ai]); } catch { alt = null; }
+              if (alt && typeof alt.then !== 'function') { group = alt; groupId = altIds[ai]; }
+            }
+          }
+          if (group && group.userId && typeof group.userId !== 'object' && String(group.userId) !== groupId) groupId = String(group.userId);
         }
       } catch { group = null; }
-      if (manager && !group) return { ok: false, managerName: managerName, message: 'Nhóm không còn trong danh sách nhóm của phiên Zalo hiện tại (có thể đã rời trước đó hoặc mã nhóm không khớp).' };
+      if (manager && !group) return { ok: false, managerName: managerName, attemptParams: 'ma:' + groupId, message: 'Zalo không tìm thấy mã nhóm ' + groupId + ' trong phiên hiện tại. Hãy quét lại danh sách nhóm rồi thử lại.' };
       // Zalo boc phan hoi nhieu lop: { data: "{\"0\":{\"error_code\":0,...}}" },
       // { data: { "0": { error_code: 0 } } } hoac { error_code: 0 }. Phai doc
       // qua het cac lop data/payload/result truoc khi ket luan — chi noi "thanh
@@ -305,7 +320,7 @@ function buildLeaveGroupScript(groupId) {
       //   0: leaveGroup(groupId)
       //   1: leaveGroup({ groupId: groupId })
       //   2: leaveGroup(groupId, memberId) — memberId lay tu chinh object nhom
-      var groupKeys = '', groupName = '';
+      var groupKeys = '', groupName = '', usedGroupId = groupId;
       try { if (group && typeof group === 'object') groupKeys = Object.keys(group).slice(0, 40).join(','); } catch {}
       var memberId = '';
       var safeId = function(value) {
@@ -405,7 +420,7 @@ function buildLeaveGroupScript(groupId) {
       try { if (rawResult && typeof rawResult === 'object') rawKeys = Object.keys(rawResult).slice(0, 20).join(','); } catch {}
       try { if (rawResult2 !== null && rawResult2 !== undefined) { rawText += ' | ' + stringifyRaw(rawResult2, 800); if (rawText.length > 3000) rawText = rawText.slice(0, 3000); } } catch {}
       var diag = {
-        attemptParams: attemptParams || shapeNotes, attemptsTried: attemptsTried, shapeNotes: shapeNotes, groupKeys: groupKeys, groupName: groupName,
+        attemptParams: (attemptParams || shapeNotes) + ' ma:' + usedGroupId, attemptsTried: attemptsTried, shapeNotes: shapeNotes, groupKeys: groupKeys, groupName: groupName,
         memberId: memberId ? 'yes' : 'no', forcedRefresh: forcedRefresh, managerName: managerName, stillExists: stillExists, verifyMs: verifyMs,
         raw: rawText, rawType: rawType, rawKeys: rawKeys, leaveApiModuleId: leaveApiModuleId, leaveApiArity: leaveApiArity, leaveApiSourceHead: leaveApiSourceHead,
       };
@@ -484,12 +499,17 @@ function buildPageExtractorScript(scanId) {
     const USER_MARKERS = ['zaloName', 'phoneNumber', 'isFriend', 'friendStatus'];
     // Dau hieu cua tin nhan / file / link-preview: nhom that khong co cac key nay.
     const MESSAGE_MARKERS = ['messageId', 'msgId', 'cliMsgId', 'fileId', 'fileName', 'senderId', 'content', 'msgContent'];
+    const pickId = (value) => (value !== undefined && value !== null && typeof value !== 'object' && String(value).trim() ? value : undefined);
     const looksLikeGroup = (item) => {
       if (!item || typeof item !== 'object' || Array.isArray(item)) return false;
       // Chi nhan id nhom that. Khong nhan conversationId/chatId/userId/id:
       // id hoi thoai 1-1 hoac id tin nhan khong phai nhom.
       const groupId = item.groupId ?? item.globalId;
-      if (!groupId || typeof groupId === 'object' || !String(groupId).trim()) return false;
+      const hasGroupId = groupId && typeof groupId !== 'object' && String(groupId).trim();
+      // Object nhom tu groupManager co the chi co userId (v2.5.34): nhan khi co
+      // dau hieu nhom manh (so thanh vien / danh sach thanh vien / admin).
+      const strongGroup = ['totalMember', 'total_member', 'memberIds', 'adminIds'].some((key) => key in item);
+      if (!hasGroupId && !(strongGroup && pickId(item.userId) !== undefined)) return false;
       if (USER_MARKERS.some((key) => key in item)) return false;
       if (MESSAGE_MARKERS.some((key) => key in item)) return false;
       // Bat buoc co dau hieu nhom: so luong / danh sach thanh vien / admin /
@@ -497,8 +517,12 @@ function buildPageExtractorScript(scanId) {
       return GROUP_MARKERS.some((key) => key in item) || Array.isArray(item.members);
     };
 
+    // Ma nhom Zalo dung noi bo (getGroupByIdSync, leaveGroup) la userId cua object
+    // nhom — v2.5.34 lay userId truoc va roi nhom chay that. Lay groupId/globalId
+    // truoc thi manager khong tim thay nhom va leaveGroup gui sai ma ("Successful."
+    // nhung khong roi). Chi ap dung voi object da qua looksLikeGroup.
     const toDto = (item) => ({
-      groupId: text(item.groupId ?? item.globalId ?? item.conversationId ?? item.chatId ?? item.userId ?? item.id, 128),
+      groupId: text(pickId(item.userId) ?? pickId(item.groupId) ?? pickId(item.globalId), 128),
       name: text(item.displayName ?? item.groupName ?? item.name ?? item.title ?? item.alias ?? item.currentName, MAX_TEXT),
       desc: text(item.desc ?? item.description ?? item.groupDesc ?? item.topic, 4_000),
       type: text(item.type ?? item.groupType ?? '', 32),
@@ -510,10 +534,24 @@ function buildPageExtractorScript(scanId) {
       sourceIndex: 0,
     });
 
+    // Cung mot nhom co the den lan co userId, lan chi co groupId (vd tu goi mang):
+    // nho groupId -> userId de gop ve mot ma, khong dem trung thanh 2 nhom.
+    const aliases = new Map();
     const add = (item) => {
       if (!looksLikeGroup(item)) return false;
       const dto = toDto(item);
       if (!dto.groupId || !dto.name) return false;
+      const plainId = text(pickId(item.groupId) ?? pickId(item.globalId), 128);
+      if (pickId(item.userId) !== undefined) {
+        if (plainId && plainId !== dto.groupId) {
+          aliases.set(plainId, dto.groupId);
+          const stale = found.get(plainId);
+          if (stale) { found.delete(plainId); if (!found.has(dto.groupId)) found.set(dto.groupId, { ...stale, groupId: dto.groupId }); }
+        }
+      } else {
+        const mapped = aliases.get(dto.groupId) || (found.has('g' + dto.groupId) ? 'g' + dto.groupId : '');
+        if (mapped) dto.groupId = mapped;
+      }
       discovered += 1;
       const previous = found.get(dto.groupId);
       if (previous) {

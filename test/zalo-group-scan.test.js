@@ -272,3 +272,15 @@ test('scan store records a terminal compatibility error and rejects late data', 
   assert.equal(store.get('scan-3').error, 'Không tìm thấy adapter');
   assert.equal(store.acceptBatch('scan-3', [{ groupId: '1', name: 'A', totalMember: 1 }]), false);
 });
+
+test('quet nhom dung ma noi bo userId cua Zalo nhu v2.5.34 va roi nhom thu ca dang g+id', () => {
+  const scan = buildPageExtractorScript('scan-uid');
+  // userId (ma Zalo dung cho getGroupByIdSync/leaveGroup) uu tien hon groupId.
+  assert.match(scan, /groupId: text\(pickId\(item\.userId\) \?\? pickId\(item\.groupId\) \?\? pickId\(item\.globalId\), 128\)/);
+  assert.match(scan, /aliases\.set\(plainId, dto\.groupId\)/);
+  assert.doesNotThrow(() => new Function(scan));
+  const leave = buildLeaveGroupScript('123');
+  assert.match(leave, /\['g' \+ groupId\]/);
+  assert.match(leave, /ma:' \+ usedGroupId/);
+  assert.doesNotThrow(() => new Function(leave));
+});
